@@ -1,4 +1,27 @@
-node_modules
-dist
+# Node / frontend
+node_modules/
+dist/
 .DS_Store
 *.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+
+# Environments and secrets
+.env
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Test and tooling caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/

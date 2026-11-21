@@ -1,6 +1,6 @@
 """Pydantic schemas for request/response payloads."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -10,6 +10,18 @@ MAX_ATTEMPTS = 10000
 MAX_DURATION_SECONDS = 86400  # one day; anything longer is not a game round
 DEFAULT_LEADERBOARD_LIMIT = 10
 MAX_LEADERBOARD_LIMIT = 50
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Treat naive datetimes as UTC and convert aware ones to UTC.
+
+    SQLite stores datetimes without timezone information and returns them
+    naive; normalizing to UTC here keeps instants correct and lets Pydantic
+    serialize every datetime with an explicit ``Z`` suffix.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 class Difficulty(StrEnum):
@@ -37,6 +49,11 @@ class ScoreCreate(BaseModel):
             raise ValueError("player_name must not be blank")
         return stripped
 
+    @field_validator("finished_at")
+    @classmethod
+    def _finished_at_to_utc(cls, value: datetime | None) -> datetime | None:
+        return None if value is None else _as_utc(value)
+
 
 class ScoreOut(BaseModel):
     """A stored score, as returned by POST /api/v1/scores."""
@@ -51,6 +68,11 @@ class ScoreOut(BaseModel):
     finished_at: datetime
     created_at: datetime
 
+    @field_validator("finished_at", "created_at")
+    @classmethod
+    def _datetimes_to_utc(cls, value: datetime) -> datetime:
+        return _as_utc(value)
+
 
 class LeaderboardEntry(BaseModel):
     """One ranked row of the leaderboard."""
@@ -64,3 +86,8 @@ class LeaderboardEntry(BaseModel):
     attempts: int
     duration_seconds: float
     finished_at: datetime
+
+    @field_validator("finished_at")
+    @classmethod
+    def _datetimes_to_utc(cls, value: datetime) -> datetime:
+        return _as_utc(value)

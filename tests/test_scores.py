@@ -83,3 +83,36 @@ def test_missing_required_fields_is_rejected_with_422(client, valid_payload):
         response = client.post("/api/v1/scores", json=payload)
 
         assert response.status_code == 422, f"expected 422 when {field} is missing"
+
+
+def test_finished_at_with_timezone_offset_is_normalized_to_utc(client, valid_payload):
+    """12:00+02:00 must be stored and returned as 10:00Z, not wall time."""
+    payload = {**valid_payload, "finished_at": "2026-11-21T12:00:00+02:00"}
+
+    response = client.post("/api/v1/scores", json=payload)
+
+    assert response.status_code == 201
+    assert response.json()["finished_at"] == "2026-11-21T10:00:00Z"
+
+
+def test_naive_finished_at_is_treated_as_utc(client, valid_payload):
+    """SQLite returns datetimes naive; the API must still answer with Z."""
+    payload = {**valid_payload, "finished_at": "2026-11-21T10:00:00"}
+
+    response = client.post("/api/v1/scores", json=payload)
+
+    assert response.status_code == 201
+    assert response.json()["finished_at"] == "2026-11-21T10:00:00Z"
+
+
+def test_response_datetimes_always_carry_utc_suffix(client, valid_payload):
+    """finished_at/created_at must be UTC-aware in every response."""
+    response = client.post("/api/v1/scores", json=valid_payload)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["finished_at"].endswith("Z")
+    assert body["created_at"].endswith("Z")
+
+    leaderboard = client.get("/api/v1/leaderboard").json()
+    assert leaderboard[0]["finished_at"].endswith("Z")

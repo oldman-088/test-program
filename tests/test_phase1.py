@@ -201,12 +201,11 @@ def test_setup_sh_bash_syntax():
 
 def test_setup_sh_generates_env(tmp_path, monkeypatch):
     """يجب أن يُولّد setup.sh ملف .env من .env.example عند التشغيل الفعلي."""
-    import os
-
     # تشغيل في نسخة مؤقتة من الجذر لتجنب لمس الملفات الحقيقية
     tmp_root = tmp_path / "repo"
+    tmp_root.mkdir(parents=True, exist_ok=True)
     for item in ROOT.iterdir():
-        if item.name == ".venv-test" or item.name == ".pytest_cache":
+        if item.name in (".venv-test", ".pytest_cache"):
             continue
         if item.is_dir():
             shutil.copytree(item, tmp_root / item.name)

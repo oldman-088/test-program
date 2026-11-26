@@ -17,6 +17,7 @@
 #   --no-install        تخطّي تثبيت الاعتماديات (venv / npm install)
 #   --port N            تجاوز منفذ الخلفية (افتراضيًا BACKEND_PORT أو 8000)
 #   --host H            تجاوز مضيف استماع الخلفية (افتراضيًا BACKEND_HOST أو 127.0.0.1)
+#   --migrate           يطبّق هجرات Alembic قبل التشغيل (مثل MIGRATE_ON_START=1)
 #   --dry-run           يطبع الأوامر التي كان سينفّذها ثم يخرج 0 بلا تشغيل
 #   -h, --help          هذه الرسالة
 #
@@ -36,6 +37,7 @@ usage() {
   --no-install       تخطّي تثبيت الاعتماديات (venv / pip / npm install)
   --port N           تجاوز منفذ الخلفية (افتراضي: BACKEND_PORT أو 8000)
   --host H           تجاوز مضيف استماع الخلفية (افتراضي: BACKEND_HOST أو 127.0.0.1)
+  --migrate          تطبيق هجرات Alembic (alembic upgrade head) قبل التشغيل
   --dry-run          طباعة الأوامر دون تنفيذها والخروج بالقيمة 0
   -h, --help         عرض هذه الرسالة
 USAGE
@@ -49,6 +51,7 @@ RUN_BACKEND=1
 RUN_FRONTEND=1
 DO_INSTALL=1
 DRY_RUN=0
+DO_MIGRATE=0
 PORT_SET=0
 HOST_SET=0
 
@@ -61,6 +64,7 @@ while [ $# -gt 0 ]; do
     --frontend-only) RUN_BACKEND=0 ;;
     --no-install)    DO_INSTALL=0 ;;
     --dry-run)       DRY_RUN=1 ;;
+    --migrate)       DO_MIGRATE=1 ;;
     --port)   [ $# -ge 2 ] || die "--port يحتاج قيمة"; DEV_PORT_ARG="$2"; PORT_SET=1; shift ;;
     --host)   [ $# -ge 2 ] || die "--host يحتاج قيمة"; DEV_HOST_ARG="$2"; HOST_SET=1; shift ;;
     --port=*) DEV_PORT_ARG="${1#*=}"; PORT_SET=1 ;;
@@ -121,8 +125,8 @@ DEV_HOST="${BACKEND_HOST:-127.0.0.1}"
 DEV_PORT="${BACKEND_PORT:-8000}"
 [ "$HOST_SET" = "1" ] && DEV_HOST="$DEV_HOST_ARG"
 [ "$PORT_SET" = "1" ] && DEV_PORT="$DEV_PORT_ARG"
-APP_IMPORT="${APP_IMPORT:-backend.app.main:app}"
-API_PREFIX="${API_PREFIX:-/api}"
+APP_IMPORT="${APP_IMPORT:-app.main:app}"
+API_V1_PREFIX="${API_V1_PREFIX:-/api/v1}"
 FRONTEND_DEV_PORT="${FRONTEND_PORT:-3000}"
 
 # -------------------------------------------------
@@ -174,7 +178,7 @@ if [ "$RUN_BACKEND" = "1" ]; then
     info "الخلفية: تحضير بيئة بايثون..."
     if [ "$DRY_RUN" = "1" ]; then
       [ "$DO_INSTALL" = "1" ] && [ ! -d "$VENV_DIR" ] && printf '[dry-run] %s\n' "${PY_BIN:-python3} -m venv $VENV_DIR"
-      [ "$DO_INSTALL" = "1" ] && [ -f "$REQS_FILE" ] && printf '[dry-run] %s\n' "${PY_BIN:-python3} -m pip install --upgrade pip && ${PY_BIN:-python3} -m pip install -r backend/requirements.txt"
+      [ "$DO_INSTALL" = "1" ] && [ -f "$REQS_FILE" ] && printf '[dry-run] %s\n' "${PY_BIN:-python3} -m pip install --upgrade pip && ${PY_BIN:-python3} -m pip install -r backend/requirements.txt && ${PY_BIN:-python3} -m pip install 'uvicorn>=0.30'"
     elif [ "$DO_INSTALL" = "1" ]; then
       if [ ! -d "$VENV_DIR" ]; then
         [ -n "$PY_BIN" ] || die "python3 غير متوفر — ثبّت Python 3.11+ أو شغّل scripts/setup.sh"
@@ -195,15 +199,33 @@ if [ "$RUN_BACKEND" = "1" ]; then
           info "اعتماديات الخلفية مثبتة ومطابقة لـ requirements.txt — تخطّي التثبيت."
         fi
       fi
+      # ملاحظة: backend/requirements.txt لا يعلن uvicorn (ولا requirements-dev.txt)،
+      # فيُثبَّت هنا صراحة لأن تشغيل الخادم يحتاجه.
+      if ! "$PY_BIN" -c 'import uvicorn' >/dev/null 2>&1; then
+        info "تثبيت uvicorn (غير معلن في requirements.txt)..."
+        "$PY_BIN" -m pip install "uvicorn>=0.30"
+      fi
     fi
+    # الحزمة الجذرية هي app داخل backend/، لذا التشغيل يكون من backend/ مع
+    # PYTHONPATH=backend (نفس ما تفعله الصورة في الحاوية).
     if [ "$DRY_RUN" = "1" ]; then
-      BACKEND_CMD="uvicorn '$APP_IMPORT' --host '$DEV_HOST' --port '$DEV_PORT' --reload --reload-dir '$BACKEND_DIR'"
+      BACKEND_CMD="(cd '$BACKEND_DIR' && env PYTHONPATH='$BACKEND_DIR' uvicorn '$APP_IMPORT' --host '$DEV_HOST' --port '$DEV_PORT' --reload --reload-dir '$BACKEND_DIR')"
     else
       UV_CMD="$(uvicorn_launcher)"
-      [ -n "$UV_CMD" ] || die "uvicorn غير مثبت. شغّل: ./scripts/setup.sh  أو: ${PY_BIN:-python3} -m pip install -r backend/requirements.txt"
-      BACKEND_CMD="$UV_CMD '$APP_IMPORT' --host '$DEV_HOST' --port '$DEV_PORT' --reload --reload-dir '$BACKEND_DIR'"
+      [ -n "$UV_CMD" ] || die "uvicorn غير مثبت. شغّل: ./scripts/setup.sh  أو: ${PY_BIN:-python3} -m pip install 'uvicorn>=0.30'"
+      BACKEND_CMD="(cd '$BACKEND_DIR' && env PYTHONPATH='$BACKEND_DIR' $UV_CMD '$APP_IMPORT' --host '$DEV_HOST' --port '$DEV_PORT' --reload --reload-dir '$BACKEND_DIR')"
     fi
-    info "الخلفية ستعمل على http://$DEV_HOST:$DEV_PORT$API_PREFIX  (APP_IMPORT=$APP_IMPORT)"
+    if [ "$DO_MIGRATE" = "1" ]; then
+      if [ "$DRY_RUN" = "1" ]; then
+        printf '[dry-run] %s\n' "(cd '$BACKEND_DIR' && env PYTHONPATH='$BACKEND_DIR' alembic upgrade head)"
+      elif [ -f "$BACKEND_DIR/alembic.ini" ]; then
+        info "تطبيق هجرات Alembic قبل التشغيل..."
+        (cd "$BACKEND_DIR" && PYTHONPATH="$BACKEND_DIR" "${PY_BIN:-python3}" -m alembic upgrade head)
+      else
+        warn "لا backend/alembic.ini — تخطّي الهجرات."
+      fi
+    fi
+    info "الخلفية ستعمل على http://$DEV_HOST:$DEV_PORT$API_V1_PREFIX/health  (APP_IMPORT=$APP_IMPORT)"
   fi
 fi
 

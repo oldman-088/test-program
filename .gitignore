@@ -1,14 +1,42 @@
+# ── دمج اتحادي (union) بين أنماط المرحلة 1 وأنماط شريحة الخلفية ────────────────
+# لا يحذف أي طرف نمطاً للطرف الآخر: ``tests/test_phase1.py`` يشترط أنماط
+# GITIGNORE_REQUIRED أدناه، و``backend/tests/test_config.py`` يشترط أن ``backend/.env``
+# مستثنى (قاعدة الأسرار في AGENTS.md · القاعدة 4).
+
+# أصول البناء والاعتماديات
 node_modules/
 dist/
-.venv/
-__pycache__/
-.pytest_cache/
+
+# الأسرار وملفات البيئة — لا تُعمَّد أبداً (``.env.example`` يبقى متتبَّعاً)
 .env
-*.sqlite3
-.mypy_cache/
-# ملفات التشغيل المحلي (المهمة 4: الحاويات والتطوير المحلي)
-data/
+.env.*
+!**/.env.example
+backend/.env
+backend/.env.*
+
+# قواعد بيانات محلية وملفات مؤقتة
 *.db
+*.db-journal
+*.sqlite
+*.sqlite3
+backend/var/
+.worktrees/
+
+# بايثون
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ملفات التشغيل المحلي (المهمة: الحاويات والتطوير المحلي)
+data/
 logs/
 .venv-test/
+# بيئات افتراضية مساعدة للسكربتات/التحقق المحلي (.venv-test، .venv-be، …)
+.venv-*/
 *.egg-info/

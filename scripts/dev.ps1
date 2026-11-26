@@ -11,7 +11,7 @@
 #   6. يوقف كل العمليات التابعة عند Ctrl+C أو عند موت إحداها.
 #
 # الاستخدام:
-#   .\scripts\dev.ps1 [-BackendOnly] [-FrontendOnly] [-NoInstall]
+#   .\scripts\dev.ps1 [-BackendOnly] [-FrontendOnly] [-NoInstall] [-Migrate]
 #                     [[-Port] <int>] [[-HostName_] <string>] [-DryRun] [-Help]
 #   .\scripts\dev.ps1 -DryRun
 #
@@ -29,6 +29,7 @@ param(
     [switch]$DryRun,
     [int]$Port = 0,
     [string]$HostName_ = '',
+    [switch]$Migrate,
     [switch]$Help
 )
 
@@ -43,6 +44,7 @@ function Show-Usage {
   -NoInstall       تخطّي تثبيت الاعتماديات (venv / pip / npm install)
   -Port N          تجاوز منفذ الخلفية (افتراضي: BACKEND_PORT أو 8000)
   -HostName_ H     تجاوز مضيف استماع الخلفية (افتراضي: BACKEND_HOST أو 127.0.0.1)
+  -Migrate         تطبيق هجرات Alembic (alembic upgrade head) قبل التشغيل
   -DryRun          طباعة الأوامر دون تنفيذها والخروج 0
   -Help            عرض هذه الرسالة
 "@ | Write-Host
@@ -108,8 +110,8 @@ function Get-EnvValue([string]$Key, [string]$Fallback) {
 
 $BackendHost = if ($HostName_) { $HostName_ } else { Get-EnvValue 'BACKEND_HOST' '127.0.0.1' }
 $BackendPort = if ($Port -gt 0) { "$Port" } else { Get-EnvValue 'BACKEND_PORT' '8000' }
-$AppImport   = Get-EnvValue 'APP_IMPORT' 'backend.app.main:app'
-$ApiPrefix   = Get-EnvValue 'API_PREFIX' '/api'
+$AppImport   = Get-EnvValue 'APP_IMPORT' 'app.main:app'
+$ApiPrefix   = Get-EnvValue 'API_V1_PREFIX' '/api/v1'
 $FrontendPort = Get-EnvValue 'FRONTEND_PORT' '3000'
 
 # -------------------------------------------------
@@ -162,7 +164,7 @@ if ($RunBackend) {
                 Write-Host "[dry-run] $PythonExe -m venv '$VenvDir'"
             }
             if (-not $NoInstall -and (Test-Path $ReqFile)) {
-                Write-Host "[dry-run] python -m pip install --upgrade pip; python -m pip install -r backend/requirements.txt"
+                Write-Host "[dry-run] python -m pip install --upgrade pip; python -m pip install -r backend/requirements.txt; python -m pip install 'uvicorn>=0.30'"
             }
         }
         elseif (-not $NoInstall) {
@@ -187,12 +189,21 @@ if ($RunBackend) {
                 else {
                     Write-Info 'اعتماديات الخلفية مثبتة ومطابقة لـ requirements.txt — تخطّي التثبيت.'
                 }
+                # ملاحظة: uvicorn غير معلن في requirements.txt ولا في متطلبات الاختبار،
+                # فيُثبَّت هنا صراحة لأن تشغيل الخادم يحتاجه.
+                if (-not (Test-PythonModule $PythonExe 'uvicorn')) {
+                    Write-Info 'تثبيت uvicorn (غير معلن في requirements.txt)...'
+                    & $PythonExe -m pip install 'uvicorn>=0.30'
+                }
             }
         }
 
+        # الحزمة الجذرية هي app داخل backend/، لذا التشغيل من backend/ مع PYTHONPATH
+        # يشير إليها — نفس ما تفعله الصورة في الحاوية (ENV PYTHONPATH=/app/backend).
         $UvicornArgs = @($AppImport, '--host', $BackendHost, '--port', $BackendPort, '--reload', '--reload-dir', $BackendDir)
         if ($DryRun) {
-            Write-Host "[dry-run] uvicorn $($UvicornArgs -join ' ')"
+            Write-Host "[dry-run] (cd $BackendDir && PYTHONPATH=$BackendDir uvicorn $($UvicornArgs -join ' '))"
+            if ($Migrate) { Write-Host "[dry-run] (cd $BackendDir && PYTHONPATH=$BackendDir alembic upgrade head)" }
         }
         else {
             $UvExe = $null
@@ -209,10 +220,26 @@ if ($RunBackend) {
                 $DevFile = (Get-Command uvicorn).Source; $DevArgs = $UvicornArgs
             }
             else {
-                Stop-Dev 'uvicorn غير مثبت. شغّل: .\scripts\setup.ps1  أو: python -m pip install -r backend/requirements.txt'
+                Stop-Dev 'uvicorn غير مثبت. شغّل: .\scripts\setup.ps1  أو: python -m pip install "uvicorn>=0.30"'
             }
-            Write-Info "الخلفية على http://$BackendHost`:$BackendPort$ApiPrefix  (APP_IMPORT=$AppImport)"
-            $script:BackendProc = Start-Process -FilePath $DevFile -ArgumentList $DevArgs -NoNewWindow -PassThru -WorkingDirectory $RootDir
+            if ($Migrate) {
+                if (Test-Path (Join-Path $BackendDir 'alembic.ini')) {
+                    Write-Info 'تطبيق هجرات Alembic قبل التشغيل...'
+                    Push-Location $BackendDir
+                    try {
+                        $env:PYTHONPATH = $BackendDir
+                        & $PythonExe -m alembic upgrade head
+                        if ($LASTEXITCODE -ne 0) { Stop-Dev 'فشلت هجرات Alembic' }
+                    }
+                    finally { Pop-Location }
+                }
+                else {
+                    Write-Warn 'لا backend/alembic.ini — تخطّي الهجرات.'
+                }
+            }
+            Write-Info "الخلفية على http://$BackendHost`:$BackendPort$ApiPrefix/health  (APP_IMPORT=$AppImport)"
+            $env:PYTHONPATH = $BackendDir
+            $script:BackendProc = Start-Process -FilePath $DevFile -ArgumentList $DevArgs -NoNewWindow -PassThru -WorkingDirectory $BackendDir
             $BackendLaunched = $true
         }
     }

@@ -108,14 +108,45 @@ def test_backend_dockerfile_base_image_and_requirements():
     text = read("docker/Dockerfile.backend")
     assert re.search(r"(?m)^FROM\s+python:3\.12-slim\b", text), "يجب البدء من python:3.12-slim"
     assert "COPY backend/requirements.txt" in text, "يجب نسخ backend/requirements.txt لطبقة الاعتماديات"
-    assert re.search(r"pip install .*-r\s+backend/requirements\.txt", text), "يجب تثبيت المتطلبات بـ pip install -r"
-    assert "COPY backend/" in text, "يجب نسخ شيفرة الخلفية"
+    assert re.search(r"pip install .*-r\s+requirements\.txt", text), "يجب تثبيت المتطلبات بـ pip install -r"
+    # uvicorn غير معلن في requirements.txt الخاصة بالخلفية: الصورة تثبّته صراحة.
+    assert re.search(r"pip install .*uvicorn>=0\.30", text), "يجب تثبيت uvicorn صراحة في صورة التشغيل"
+    assert "COPY backend/ /app/backend/" in text, "يجب نسخ شيفرة الخلفية إلى /app/backend"
+
+
+def test_backend_files_that_the_image_copies_exist():
+    """الصورة تنسخ `backend/requirements.txt` و`backend/app` — كلاهما مصدر حقيقي الآن.
+
+    ملاحظة عقْدية مُختبَرة لا مفترضة: uvicorn غير معلنة في requirements.txt (ولا في
+    requirements-dev.txt)، وهي التي تعالجها الصورة والسكربتات صراحةً؛ إن أُضيفت هناك
+    لاحقًا فذاك السطر يصبح زائدًا ويجب تحديثه معًا.
+    """
+    reqs = ROOT / "backend" / "requirements.txt"
+    main_py = ROOT / "backend" / "app" / "main.py"
+    assert reqs.is_file(), "docker/Dockerfile.backend ينسخ backend/requirements.txt فيجب أن توجد"
+    assert main_py.is_file(), "منفذ ASGI app.main:app يجب أن يكون موجودًا في backend/app/main.py"
+    req_text = reqs.read_text(encoding="utf-8").lower()
+    assert "fastapi" in req_text, "يجب أن تعلن requirements.txt عن fastapi"
+    assert "uvicorn" not in req_text, (
+        "uvicorn كانت معلنة في requirements.txt — يجب الآن إزالة سطر التثبيت الصريح "
+        "من Dockerfile.backend ومن scripts/dev.* حتى لا يتضاعف مصدر الحقيقة"
+    )
+    assert re.search(r"^app\s*=\s*create_app\(\)", main_py.read_text(encoding="utf-8"), re.M), (
+        "يجب أن يصدّر backend/app/main.py الكائن app كما تتوقعه الصورة والسكربتات"
+    )
+    # backend/.env لا يجوز أن يُلتزم: يتسرب إلى طبقة البناء ويخالف البند 22.
+    tracked = subprocess.run(["git", "ls-files", "backend/.env"], capture_output=True, text=True, cwd=ROOT)
+    assert tracked.stdout.strip() == "", (
+        "backend/.env مُتتبَّع في Git — يجب حذفه من الفهرس: git rm --cached backend/.env"
+    )
 
 
 def test_backend_dockerfile_runs_uvicorn_on_all_interfaces_with_port_env():
     """البند 3: uvicorn على 0.0.0.0:8000 مع متغير بيئة للمنفذ."""
     text = read("docker/Dockerfile.backend")
     assert re.search(r"(?m)^ENV\s+BACKEND_PORT=8000\b", text), "يجب تعريف BACKEND_PORT=8000 كمتغير بيئة"
+    assert "APP_IMPORT=app.main:app" in text, "منفذ ASGI الحقيقي للخلفية هو app.main:app"
+    assert "API_V1_PREFIX=/api/v1" in text, "يجب مطابقة بادئة REST لدى الخلفية"
     cmd_lines = [l for l in text.splitlines() if l.startswith("CMD")]
     assert cmd_lines, "يجب أن تحتوي الصورة على CMD"
     cmd = " ".join(cmd_lines)
@@ -130,7 +161,9 @@ def test_backend_dockerfile_is_non_root_with_data_dir():
     assert re.search(r"(?m)^USER\s+app\b", text), "يجب التشغيل كمستخدم غير جذري"
     assert "useradd" in text and "chown app:app /app/data" in text, "يجب تمكين المستخدم من كتابة /app/data فقط"
     assert "DATA_DIR=/app/data" in text, "يجب تعريف مجلد البيانات /app/data"
+    assert "PYTHONPATH=/app/backend" in text, "جذر الحزمة app داخل backend/ فيتطلب PYTHONPATH"
     assert "HEALTHCHECK" in text, "يجب تعريف فحص صحة للحاوية"
+    assert "alembic upgrade head" in text, "يجب دعم تطبيق الهجرات عند الإقلاع (MIGRATE_ON_START)"
 
 
 def test_dockerfiles_have_no_unescaped_newlines_in_json_form():
@@ -314,23 +347,26 @@ def test_backend_healthcheck_command_actually_works(tmp_path):
     port = server.server_address[1]
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
+        Handler.allowed = {"/api/v1/health"}
+
         def run(**env):
             child_env = {k: v for k, v in os.environ.items()}
             child_env.pop("HEALTHCHECK_PATH", None)
+            child_env.pop("API_V1_PREFIX", None)
             child_env.pop("API_PREFIX", None)
             child_env["BACKEND_PORT"] = str(port)
             child_env.update({k: str(v) for k, v in env.items()})
             return subprocess.run(["sh", "-c", cmd], env=child_env, capture_output=True, text=True, timeout=30)
 
-        assert run(API_PREFIX="/api").returncode == 0, "الفحص يجب أن ينجح على /api/health"
+        assert run(API_V1_PREFIX="/api/v1").returncode == 0, "الفحص يجب أن ينجح على /api/v1/health"
         Handler.allowed = {"/v1/health"}
-        assert run(API_PREFIX="/v1").returncode == 0, "الفحص يجب أن يتبع API_PREFIX"
-        assert run(API_PREFIX="/api").returncode != 0, "الفحص يجب أن يفشل عند 404 لا أن ينجح زائفًا"
+        assert run(API_V1_PREFIX="/v1").returncode == 0, "الفحص يجب أن يتبع API_V1_PREFIX"
+        assert run(API_V1_PREFIX="/api/v1").returncode != 0, "الفحص يجب أن يفشل عند 404 لا أن ينجح زائفًا"
         Handler.allowed = set()
-        assert run(API_PREFIX="/api", HEALTHCHECK_PATH="").returncode == 0, (
+        assert run(API_V1_PREFIX="/api/v1", HEALTHCHECK_PATH="").returncode == 0, (
             'HEALTHCHECK_PATH="" يجب أن يعطّل الفحص'
         )
-        assert run(HEALTHCHECK_PATH="/api/health", **{"API_PREFIX": "/ignored"}).returncode != 0
+        assert run(HEALTHCHECK_PATH="/api/v1/health", **{"API_V1_PREFIX": "/ignored"}).returncode != 0
     finally:
         server.shutdown()
         server.server_close()
@@ -377,10 +413,15 @@ def test_compose_mounts_sqlite_volume_and_passes_env_file():
     assert volume_def.get("name"), "يجب تثبيت اسم الـ volume ليبقى بعد إعادة إنشاء المشروع"
 
 
-def test_compose_backend_port_is_pinned_inside_the_network():
-    """يجب أن يثبت المنفذ الداخلي على 8000 ليطابق backend:8000 في nginx.conf."""
+def test_compose_backend_matches_the_real_backend_contract():
+    """Compose يواكب عقد الخلفية المدموجة: المنفذ الداخلي، app.main:app، /api/v1، وقاعدة volume."""
     env = load_yaml("docker-compose.yml")["services"]["backend"].get("environment", {})
-    assert str(env.get("BACKEND_PORT")) == "8000"
+    assert str(env.get("BACKEND_PORT")) == "8000", "يجب تثبيت المنفذ الداخلي على 8000 ليطابق nginx.conf"
+    assert "app.main:app" in str(env.get("APP_IMPORT", "")), "منفذ ASGI للخلفية هو app.main:app"
+    assert str(env.get("PYTHONPATH")) == "/app/backend", "جذر الحزمة app داخل backend/"
+    assert "/api/v1" in str(env.get("API_V1_PREFIX", "")), "يجب تمرير بادئة REST للخلفية"
+    assert "aatm.db" in str(env.get("DATABASE_URL", "")), "اسم ملف القاعدة داخل الـ volume يجب أن يطابق الخلفية"
+    assert str(env.get("ENVIRONMENT", "")).startswith("${"), "يجب تعيين ENVIRONMENT من APP_ENV الخاص بالمشروع"
 
 
 def test_compose_files_contain_no_hardcoded_secrets():
@@ -403,6 +444,9 @@ def test_override_enables_code_hot_reload():
     backend_vols = [str(v) for v in services["backend"].get("volumes", [])]
     assert "./backend:/app/backend" in backend_vols, f"يجب تركيب ./backend: {backend_vols}"
     assert str(services["backend"].get("environment", {}).get("UVICORN_RELOAD")) == "1", "يجب تفعيل UVICORN_RELOAD"
+    assert str(services["backend"].get("environment", {}).get("MIGRATE_ON_START")) == "1", (
+        "وضع التطوير يطبّق هجرات Alembic عند الإقلاع حتى تعمل نقاط العمل مباشرة"
+    )
     frontend = services["frontend"]
     frontend_vols = [str(v) for v in frontend.get("volumes", [])]
     assert "./frontend:/app" in frontend_vols, f"يجب تركيب ./frontend: {frontend_vols}"
@@ -438,6 +482,8 @@ def test_env_example_documents_container_publish_ports():
     text = read(".env.example")
     assert "BACKEND_HOST_PORT" in text, "يجب توثيق BACKEND_HOST_PORT لنشر منفذ الخلفية"
     assert "BACKEND_PORT" in text and "FRONTEND_PORT" in text
+    assert "APP_IMPORT=app.main:app" in text, "يجب توثيق منفذ ASGI الصحيح للخلفية"
+    assert "API_V1_PREFIX=/api/v1" in text, "يجب توثيق بادئة REST الفعلية للخلفية"
 
 
 # -------------------------------------------------
@@ -453,8 +499,22 @@ def test_dev_sh_help_lists_all_flags():
     """--help يجب أن يوثّق كل الوسائط."""
     result = subprocess.run(["bash", str(ROOT / "scripts/dev.sh"), "--help"], capture_output=True, text=True, cwd=str(ROOT))
     assert result.returncode == 0, result.stderr
-    for flag in ("--backend-only", "--frontend-only", "--no-install", "--dry-run", "--port", "--host"):
+    for flag in ("--backend-only", "--frontend-only", "--no-install", "--dry-run", "--port", "--host", "--migrate"):
         assert flag in result.stdout, f"--help لا يوثّق الوسيط {flag}"
+
+
+def test_dev_scripts_document_the_real_backend_launch_contract():
+    """السكربتات تشغّل الخلفية من `backend/` بـ PYTHONPATH وبالمنفذ app.main:app — لا تخمين."""
+    sh = read("scripts/dev.sh")
+    ps1 = read("scripts/dev.ps1")
+    for label, text in (("dev.sh", sh), ("dev.ps1", ps1)):
+        assert "app.main:app" in text, f"{label} يجب أن يستخدم منفذ ASGI الحقيقي"
+        assert "API_V1_PREFIX" in text, f"{label} يجب أن يقرأ البادئة التي تعرفها الخلفية"
+        assert "PYTHONPATH" in text, f"{label} يجب أن يصدر PYTHONPATH إلى backend/"
+        assert "alembic" in text, f"{label} يجب أن يدعم هجرات Alembic (--migrate / -Migrate)"
+    assert "uvicorn>=0.30" in sh and "uvicorn>=0.30" in ps1, (
+        "uvicorn غير معلنة في requirements.txt: السكربتات تثبّتها صراحة"
+    )
 
 
 def test_dev_sh_does_not_invoke_docker():
@@ -466,15 +526,27 @@ def test_dev_sh_does_not_invoke_docker():
 
 
 def _fixture_repo(tmp_path: Path, *, with_backend=True, with_frontend=True) -> Path:
-    """نسخة مصغّرة من الجذر فيها بدائل backend/ و frontend/ لاختبار السكربت."""
+    """نسخة من الجذر لاختبار السكربت: `backend/` الحقيقية إن وُجدت، وبديل مصغّر إن لا.
+
+    نسخ `backend/` كما هي (بدون `var/` و`.env` و`__pycache__`) يجعل اختبار الإقلاع
+    الفعلي يتحقق من التطبيق نفسه: نفس PYTHONPATH، ونفس المسار `/api/v1/health`،
+    ونفس قراءة `.env` بدون source.
+    """
     work = tmp_path / "repo"
     (work / "scripts").mkdir(parents=True)
     shutil.copy2(ROOT / "scripts/dev.sh", work / "scripts" / "dev.sh")
     shutil.copy2(ROOT / ".env.example", work / ".env.example")
     if with_backend:
-        (work / "backend" / "app").mkdir(parents=True)
-        (work / "backend" / "requirements.txt").write_text("uvicorn\n", encoding="utf-8")
-        (work / "backend" / "app" / "main.py").write_text("app = None\n", encoding="utf-8")
+        real = ROOT / "backend"
+        if (real / "app" / "main.py").is_file():
+            shutil.copytree(
+                real, work / "backend",
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache", "var", ".env"),
+            )
+        else:
+            (work / "backend" / "app").mkdir(parents=True)
+            (work / "backend" / "requirements.txt").write_text("uvicorn\n", encoding="utf-8")
+            (work / "backend" / "app" / "main.py").write_text("app = None\n", encoding="utf-8")
     if with_frontend:
         (work / "frontend").mkdir()
         (work / "frontend" / "package.json").write_text(
@@ -496,6 +568,8 @@ def test_dev_sh_dry_run_prints_both_commands(tmp_path):
     assert "--port '8137'" in out, f"المنفذ الممرّر غير مستخدم في:\n{out}"
     assert "--host '127.0.0.1'" in out, f"المضيف الممرّر غير مستخدم في:\n{out}"
     assert "npm run dev" in out and "--port '3000'" in out, f"أمر خادم تطوير الواجهة غير موجود في:\n{out}"
+    assert "app.main:app" in out, f"يجب أن يستخدم dev.sh منفذ ASGI الحقيقي للخلفية:\n{out}"
+    assert "PYTHONPATH=" in out, f"يجب أن يصدّر dev.sh PYTHONPATH إلى backend/:\n{out}"
     env_file = work / ".env"
     assert env_file.is_file(), "يجب أن يولّد dev.sh ملف .env"
     assert env_file.read_text(encoding="utf-8") == (work / ".env.example").read_text(encoding="utf-8"), (
@@ -533,60 +607,89 @@ def test_dev_sh_rejects_unknown_flag(tmp_path):
 
 
 @needs_uvicorn
-def test_dev_sh_really_starts_and_stops_uvicorn(tmp_path):
-    """تشغيل فعلي لـ dev.sh: الخلفية تستجيب على المنفذ، والتنظيف يُغلقه بالكامل."""
+def test_dev_sh_really_starts_and_stops_the_real_backend(tmp_path):
+    """تشغيل فعلي لـ dev.sh مقابل **خلفية المستودع الحقيقية**: إقلاع، صحة، مصادقة، وتنظيف.
+
+    يغطّي هذا العقد المحلي كاملًا بلا Docker:
+    - `PYTHONPATH=backend` + cwd=`backend/` + `app.main:app` ⇒ `GET /api/v1/health` = 200؛
+    - `GET /api/health` = 404 ⇒ النجاح ليس زائفًا (لو أخطأ السكربت البادئة لفشل الحقلان معًا)؛
+    - `--migrate` يطبّق Alembic ⇒ `GET /api/v1/health/ready` يقول `ready`؛
+    - `POST /api/v1/sessions` بـ `X-API-Key` = 201 ⇒ مفتاح `.env` يصل الخادم عبر البيئة؛
+    - بعد `SIGTERM` لا تبقى عملية و لا منفذ مفتوح (بند 20: لا بقاء لعمليات يتيمة).
+    """
     work = _fixture_repo(tmp_path, with_frontend=False)
     (work / ".venv").symlink_to(_venv_with_uvicorn(), target_is_directory=True)
+    (work / "backend" / "var").mkdir(exist_ok=True)
     (work / ".env").write_text("BACKEND_HOST=127.0.0.1\nBACKEND_PORT=8391\n", encoding="utf-8")
-    (work / "backend" / "app" / "main.py").write_text(
-        textwrap.dedent(
-            """
-            import json
+    child_env = {**os.environ, "API_KEY": "dev-only-not-a-secret", "PYTHONUNBUFFERED": "1"}
 
-            async def app(scope, receive, send):
-                body = json.dumps({"status": "ok"}).encode()
-                await send({"type": "http.response.start", "status": 200,
-                            "headers": [(b"content-type", b"application/json"),
-                                        (b"content-length", str(len(body)).encode())]})
-                await send({"type": "http.response.body", "body": body})
-            """
-        ).lstrip(),
-        encoding="utf-8",
-    )
     proc = subprocess.Popen(
-        ["bash", "scripts/dev.sh", "--backend-only", "--no-install"],
-        cwd=str(work), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True,
+        ["bash", "scripts/dev.sh", "--backend-only", "--no-install", "--migrate"],
+        cwd=str(work), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        env=child_env, start_new_session=True,
     )
-    code = None
+
+    def curl(path: str, *extra: str) -> str:
+        return subprocess.run(
+            ["curl", "-s", "-m", "5", "http://127.0.0.1:8391" + path, *extra],
+            capture_output=True, text=True,
+        ).stdout
+
+    def code(path: str, *extra: str) -> str:
+        return subprocess.run(
+            ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "-m", "5",
+             "http://127.0.0.1:8391" + path, *extra],
+            capture_output=True, text=True,
+        ).stdout.strip()
+
+    log_lines: list[str] = []
     try:
+        health = ""
         for _ in range(60):
-            probe = subprocess.run(
-                ["curl", "-s", "-m", "3", "-o", "/dev/null", "-w", "%{http_code}", "http://127.0.0.1:8391/api/health"],
-                capture_output=True, text=True,
-            )
-            if probe.stdout.strip() == "200":
-                code = probe.stdout.strip()
-                break
             if proc.poll() is not None:
                 pytest.fail(f"خرج dev.sh مبكرًا:\n{proc.stdout.read()}")
+            health = code("/api/v1/health")
+            if health == "200":
+                break
             subprocess.run(["sleep", "1"])
+        log_lines.append(proc.stdout.readline() if proc.poll() is None else "")
+        assert health == "200", f"لم تجب الخلفية الحقيقية على /api/v1/health خلال 60 ثانية (جاء {health!r})"
+        assert code("/api/health") == "404", (
+            "المسار بلا البادئة يجب أن يعيد 404 — يثبت أن 200 السابقة جاءت من التطابق الفعلي"
+        )
+        body = curl("/api/v1/health")
+        assert '"status":"ok"' in body.replace(" ", ""), f"استجابة الصحة غير متوقعة: {body[:200]}"
+        ready = curl("/api/v1/health/ready")
+        assert "ready" in ready, f"هجرات --migrate لم تُطبَّق؟ {ready[:200]}"
+        created = code(
+            "/api/v1/sessions", "-X", "POST", "-H", "X-API-Key: dev-only-not-a-secret",
+            "-H", "content-type: application/json",
+            "-d", '{"task_id":"aatm-c740feee-a5ee-4519-958f-93dbc7b1241a","employee_id":"worker-5","branch":"arena/82fdba0c-test-program","worktree":"/app/backend"}',
+        )
+        assert created == "201", f"كان يجب 201 على إنشاء سجل العمل، جاء {created}"
+        assert code("/api/v1/sessions", "-X", "POST", "-d", "{}") == "401", (
+            "البند: بلا مفتاح يجب 401 (و 500 تعني أن API_KEY لم يصل الخادم من البيئة)"
+        )
     finally:
         proc.terminate()
         try:
-            proc.wait(timeout=30)
+            out, _ = proc.communicate(timeout=30)
         except subprocess.TimeoutExpired:
             proc.kill()
-    assert code == "200", "لم تستجب الخلفية على المنفذ المحلي خلال 60 ثانية"
-    assert proc.returncode == 0, f"كان يجب أن يخرج dev.sh بـ 0 بعد SIGTERM، خرج {proc.returncode}"
-    # المنفذ يجب أن يُغلق بعد التنظيف (لا عمليات يتيمة تحتجزه) — مع مهلة قصيرة
-    # لانسحاب uvicorn المتدرج من الاستماع.
-    for _ in range(20):
-        probe = subprocess.run(["curl", "-s", "-m", "2", "http://127.0.0.1:8391/api/health"],
-                               capture_output=True, text=True)
-        if probe.returncode != 0:
+            out, _ = proc.communicate()
+    assert proc.returncode == 0, f"كان يجب أن يخرج dev.sh بـ 0 بعد SIGTERM، خرج {proc.returncode}:\n{out[-1500:]}"
+    # المنفذ أُغلق فعلًا (استطلاع، لا sleep ثابت).
+    closed = False
+    for _ in range(30):
+        probe = subprocess.run(["curl", "-s", "-m", "2", "-o", "/dev/null", "-w", "%{http_code}",
+                                "http://127.0.0.1:8391/api/v1/health"], capture_output=True, text=True)
+        if probe.stdout.strip() in ("", "000"):
+            closed = True
             break
-        subprocess.run(["sleep", "0.5"])
-    assert probe.returncode != 0, "المنفذ 8391 ما زال مفتوحًا بعد تنظيف dev.sh — بقيت عملية يتيمة"
+        subprocess.run(["sleep", "0.2"])
+    assert closed, "المنفذ 8391 ما زال يخدم بعد SIGTERM — بقاء يتعارض مع بند التنظيف"
+    orphans = subprocess.run(["pgrep", "-f", "uvicorn app.main:app"], capture_output=True, text=True)
+    assert orphans.stdout.strip() == "", f"بقيت عمليات uvicorn يتيمة:\n{orphans.stdout}"
 
 
 # -------------------------------------------------
@@ -683,72 +786,23 @@ def test_environment_documents_sqlite_volume_and_ports():
     text = read("docs/ENVIRONMENT.md")
     assert "nexus-osint-data" in text, "يجب توثيق اسم الـ volume الدائم"
     assert "docker compose down -v" in text, "يجب توضيح الفرق بين down و down -v"
-    assert re.search(r"8000/api/health|/api/health", text), "يجب توثيق مسارات الفحص بعد التشغيل"
+    assert "/api/v1/health" in text, "يجب توثيق مسار الفحص الحقيقي (/api/v1/health)"
+    assert "alembic upgrade head" in text, "يجب توثيق أن الهجرات خطوة تشغيل في وضع الحاويات"
+    for token in ("app.main:app", "MIGRATE_ON_START", "uvicorn>=0.30", "app/data/aatm.db"):
+        assert token in text, f"التوثيق يجب أن يذكر عقد الخلفية المدموجة: {token}"
+    assert "docker compose down -v" in text
 
 
 # -------------------------------------------------
-# التحقق الفعلي عبر Compose (يتطلب Docker)
+# التحقق الفعلي عبر Compose (يتطلب Docker): خلفية المستودع الحقيقية + واجهة بديلة
 # -------------------------------------------------
-BACKEND_FIXTURE = '''
-import json
-import os
-import sqlite3
-
-DB = (os.environ.get("DATABASE_URL") or "").replace("sqlite:///", "") or "/app/data/nexus.db"
-
-
-def _connect():
-    parent = os.path.dirname(DB)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
-    con = sqlite3.connect(DB)
-    con.execute("CREATE TABLE IF NOT EXISTS hits (n INTEGER PRIMARY KEY AUTOINCREMENT, who TEXT)")
-    con.commit()
-    return con
-
-
-async def app(scope, receive, send):
-    path = scope.get("path", "")
-    if scope.get("method", "GET") == "POST":
-        while True:
-            msg = await receive()
-            if msg.get("type") == "http.request":
-                break
-    status, payload = 200, {"path": path}
-    if path.startswith("/api/health"):
-        payload = {"status": "ok", "db": DB}
-    elif path.startswith("/api/db/hit"):
-        con = _connect()
-        con.execute("INSERT INTO hits (who) VALUES (?)", ("ci",))
-        con.commit()
-        payload = {"inserted": con.execute("SELECT COUNT(*) FROM hits").fetchone()[0]}
-        con.close()
-    elif path.startswith("/api/db/count"):
-        con = _connect()
-        payload = {"count": con.execute("SELECT COUNT(*) FROM hits").fetchone()[0]}
-        con.close()
-    else:
-        status = 404
-    body = json.dumps(payload).encode()
-    await send({"type": "http.response.start", "status": status,
-                "headers": [(b"content-type", b"application/json"),
-                            (b"content-length", str(len(body)).encode())]})
-    await send({"type": "http.response.body", "body": body})
-'''
-
-FRONTEND_FIXTURE_BUILD = '''
-import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
-mkdirSync("dist", { recursive: true });
-writeFileSync("dist/index.html", readFileSync("index.html", "utf8").replace(/__MARKER__/g, "built-by-dockerfile-frontend"));
-for (const asset of ["app.js", "app.css"]) {
-  writeFileSync("dist/" + asset, readFileSync(asset, "utf8"));
-}
-console.log("dist built");
-'''
-
-
 def _compose_sandbox(tmp_path: Path) -> Path:
-    """نسخة من جذر البناء مع بدائل backend/ و frontend/ (لا تُلتزم أبدًا)."""
+    """نسخة من جذر البناء تستخدم **الخلفية الحقيقية من المستودع** وبديلًا مؤقتًا للواجهة.
+
+    الواجهة (`frontend/`) لم تُدمج بعد في `main`، لذلك تُنشأ هنا شيفرة بسيطة داخل
+    الدليل المؤقت فقط — أما `backend/` فيُنسخ كما هو، فيُختبَر ملفا Dockerfile
+    و nginx.conf و Compose مقابل التطبيق الحقيقي (مساراته ومصادقته وقاعدته).
+    """
     work = tmp_path / "repo"
     (work / "docker").mkdir(parents=True)
     for rel, dest in (
@@ -762,12 +816,17 @@ def _compose_sandbox(tmp_path: Path) -> Path:
     ):
         shutil.copy2(ROOT / rel, work / dest)
 
-    backend = work / "backend"
-    (backend / "app").mkdir(parents=True)
-    (backend / "requirements.txt").write_text("uvicorn\n", encoding="utf-8")
-    (backend / "__init__.py").write_text("", encoding="utf-8")
-    (backend / "app" / "__init__.py").write_text("", encoding="utf-8")
-    (backend / "app" / "main.py").write_text(BACKEND_FIXTURE.lstrip("\n"), encoding="utf-8")
+    real_backend = ROOT / "backend"
+    if real_backend.is_dir():
+        shutil.copytree(
+            real_backend, work / "backend",
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache", "var", ".env", "node_modules"),
+        )
+    else:  # بيئة قديمة بلا شريحة خلفية: بحدّ أدنى يمنع فشل التحليل فقط
+        (work / "backend" / "app").mkdir(parents=True)
+        (work / "backend" / "requirements.txt").write_text("fastapi\nuvicorn\n", encoding="utf-8")
+        (work / "backend" / "app" / "main.py").write_text("from fastapi import FastAPI\napp = FastAPI()\n", encoding="utf-8")
+    assert (work / "backend" / "requirements.txt").is_file(), "backend/requirements.txt مفقود من المستودع"
 
     fe = work / "frontend"
     fe.mkdir()
@@ -787,7 +846,7 @@ def _compose_sandbox(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     (fe / "app.js").write_text(
-        "fetch('/api/health').then(r => r.json()).then(d => { document.title = d.status; });\n", encoding="utf-8"
+        "fetch('/api/v1/health').then(r => r.json()).then(d => { document.title = d.status; });\n", encoding="utf-8"
     )
     (fe / "app.css").write_text("body{font-family:system-ui;margin:2rem}\n", encoding="utf-8")
     (fe / "build.mjs").write_text(FRONTEND_FIXTURE_BUILD.lstrip("\n"), encoding="utf-8")
@@ -802,7 +861,7 @@ def _compose_sandbox(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     (work / ".env").write_text(
-        "APP_ENV=development\nBACKEND_PORT=8000\nFRONTEND_PORT=3000\nAPI_PREFIX=/api\n", encoding="utf-8"
+        "APP_ENV=development\nBACKEND_PORT=8000\nFRONTEND_PORT=3000\nAPI_V1_PREFIX=/api/v1\n", encoding="utf-8"
     )
     return work
 
@@ -814,10 +873,11 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def _http_request(method: str, url: str, attempts: int = 30) -> str:
+def _http_request(method: str, url: str, attempts: int = 30, extra: list[str] | None = None) -> str:
     last = ""
+    argv = ["curl", "-s", "-S", "-m", "10", "-X", method] + list(extra or []) + [url]
     for _ in range(attempts):
-        result = subprocess.run(["curl", "-s", "-S", "-m", "10", "-X", method, url], capture_output=True, text=True)
+        result = subprocess.run(argv, capture_output=True, text=True)
         last = result.stdout
         if result.returncode == 0 and last.strip():
             return last
@@ -845,20 +905,19 @@ def test_docker_compose_config_is_valid(tmp_path):
 @needs_docker_build
 @integration
 def test_docker_compose_up_serves_frontend_proxies_api_and_persists_sqlite(tmp_path):
-    """التحقق الكامل: بناء الخدمتين، خدمة الواجهة على منفذ منشور، تمرير /api، وبقاء
-    بيانات SQLite في volume دائم بعد إعادة إنشاء الحاويات.
-
-    يعتمد على بدائل backend/ و frontend/ في نسخة مؤقتة من الجذر: الغرض اختبار ملفات
-    التشغيل نفسها، لأن شيفرة التطبيق تُدمج في مهام أخرى.
+    """التحقق الكامل: بناء الصورتين، خدمة الواجهة على منفذ منشور، تمرير /api إلى
+    **الخلفية الحقيقية**، وبقاء بيانات SQLite في volume دائم بعد إعادة الإنشاء.
     """
     work = _compose_sandbox(tmp_path)
     ports = {name: _free_port() for name in ("backend", "frontend")}
+    api_key = "ci-only-not-a-secret"
     (work / ".env").write_text(
         "APP_ENV=development\n"
         "BACKEND_PORT=8000\n"
         f"BACKEND_HOST_PORT={ports['backend']}\n"
         f"FRONTEND_PORT={ports['frontend']}\n"
-        "API_PREFIX=/api\n",
+        "API_V1_PREFIX=/api/v1\n"
+        f"API_KEY={api_key}\n",
         encoding="utf-8",
     )
     project = f"nexus-itest-{os.getpid()}"
@@ -873,6 +932,9 @@ def test_docker_compose_up_serves_frontend_proxies_api_and_persists_sqlite(tmp_p
         logs = compose("logs", "--no-color", timeout=180)
         return f"[{tag}]\ncompose ps:\n{state.stdout}{state.stderr}\nlogs:\n{logs.stdout[-8000:]}{logs.stderr[-2000:]}"
 
+    def curl(method, url, *extra):
+        return _http_request(method, url, extra=list(extra))
+
     try:
         # بيئة نظيفة: volume باسم ثابت قد يبقى من تشغيل سابق.
         subprocess.run(["docker", "volume", "rm", volume], capture_output=True, text=True)
@@ -880,7 +942,7 @@ def test_docker_compose_up_serves_frontend_proxies_api_and_persists_sqlite(tmp_p
         built = compose("build", timeout=1800)
         assert built.returncode == 0, f"فشل بناء الصورتين:\n{built.stdout[-4000:]}\n{built.stderr[-2000:]}"
 
-        up = compose("up", "-d", "--wait", "--wait-timeout", "150", timeout=400)
+        up = compose("up", "-d", "--wait", "--wait-timeout", "180", timeout=400)
         assert up.returncode == 0, dump_state("up") + f"\n{up.stdout[-2000:]}{up.stderr[-2000:]}"
 
         fe = f"http://127.0.0.1:{ports['frontend']}"
@@ -895,31 +957,59 @@ def test_docker_compose_up_serves_frontend_proxies_api_and_persists_sqlite(tmp_p
         assert "font-family" in _http_get(f"{fe}/app.css"), "الأصول الثابتة لا تُخدم من nginx"
         assert "<!doctype html>" in _http_get(f"{fe}/projects/42"), "SPA fallback (try_files) لا يعمل"
 
-        # 3) /api يمرَّر إلى خدمة الخلفية عبر nginx، وباسم الخدمة داخل الشبكة.
-        api = _http_get(f"{fe}/api/health")
-        assert '"status": "ok"' in api, f"تمرير /api إلى الخلفية فشل:\n{api[:300]}\n{dump_state('api')}"
-        assert '"status": "ok"' in _http_get(f"{be}/api/health"), "الخلفية لا تجيب على منفذها المنشور"
+        # 3) /api/v1 يصل إلى التطبيق الحقيقي عبر nginx (نفس المسار بلا rewrite).
+        api = _http_get(f"{fe}/api/v1/health")
+        assert '"status":"ok"' in api or '"status": "ok"' in api, (
+            f"تمرير /api إلى الخلفية الحقيقية فشل:\n{api[:300]}\n{dump_state('api')}"
+        )
+        assert "version" in api, f"الاستجابة ليست من عقد الخلفية المتوقع:\n{api[:300]}"
+        assert '"status":"ok"' in _http_get(f"{be}/api/v1/health") or "ok" in _http_get(f"{be}/api/v1/health"), (
+            "الخلفية لا تجيب على منفذها المنشور"
+        )
+        ready = _http_get(f"{fe}/api/v1/health/ready")
+        assert "ready" in ready, f"فحص الاتصال بالقاعدة عبر nginx فشل:\n{ready[:300]}"
 
-        # 4) SQLite تُحفظ في volume دائم ولا تضيع عند إعادة إنشاء الحاويات.
-        hit = _http_request("POST", f"{fe}/api/db/hit")
-        assert '"inserted": 1' in hit, f"لم تُسجَّل بيانات SQLite عبر nginx:\n{hit[:300]}\n{dump_state('hit')}"
+        # 4) المصادقة تمرّ عبر nginx كما في التطبيق (Q5): بلا مفتاح ⇒ 401.
+        unauth = subprocess.run(
+            ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "-m", "10", "-X", "POST",
+             f"{fe}/api/v1/sessions", "-H", "content-type: application/json", "-d", "{}"],
+            capture_output=True, text=True,
+        )
+        assert unauth.stdout.strip() == "401", f"كان يجب 401 بلا مفتاح، جاء {unauth.stdout.strip()}"
+
+        # 5) الهجرات خطوة تشغيل صريحة (الموثّقة في docker-compose.yml).
+        migrated = compose("exec", "-T", "backend", "alembic", "upgrade", "head", timeout=300)
+        assert migrated.returncode == 0, f"alembic upgrade head فشل:\n{migrated.stdout[-1500:]}{migrated.stderr[-1500:]}"
+
+        # 6) كتابة سجل حقيقي ثم إعادة إنشاء الحاويات: البيانات تبقى في الـ volume.
+        body = ('{"task_id":"aatm-c740feee-a5ee-4519","employee_id":"worker-5",'
+                '"branch":"arena/82fdba0c-test-program","worktree":"/app/backend"}')
+        created = curl("POST", f"{fe}/api/v1/sessions", "-H", f"X-API-Key: {api_key}",
+                       "-H", "content-type: application/json", "-d", body)
+        assert '"task_id"' in created, f"لم يُنشأ السجل عبر nginx:\n{created[:400]}\n{dump_state('create')}"
+        session_id = ""
+        match = re.search(r'"id"\s*:\s*"(ses_[0-9a-f]+)"', created)
+        if match:
+            session_id = match.group(1)
+        assert session_id, f"تعذّر قراءة معرّف الجلسة من: {created[:300]}"
+
         volumes = subprocess.run(["docker", "volume", "ls", "--filter", f"name={volume}", "--format", "{{.Name}}"],
-                                capture_output=True, text=True)
+                                 capture_output=True, text=True)
         assert volume in volumes.stdout, f"لم يُنشأ الـ volume المُسمّى: {volumes.stdout!r}"
+        inside = compose("exec", "-T", "backend", "python", "-c",
+                         "import glob; print(sorted(glob.glob('/app/data/*')))")
+        assert "aatm.db" in inside.stdout, f"ملف القاعدة ليس في مسار الـ volume: {inside.stdout}{inside.stderr}"
 
         down = compose("down", timeout=400)
         assert down.returncode == 0, dump_state("down") + f"\n{down.stderr[-1500:]}"
-        up2 = compose("up", "-d", "--wait", "--wait-timeout", "150", timeout=400)
+        up2 = compose("up", "-d", "--wait", "--wait-timeout", "180", timeout=400)
         assert up2.returncode == 0, dump_state("re-up") + f"\n{up2.stderr[-1500:]}"
-        after = _http_get(f"{fe}/api/db/count")
-        assert '"count": 1' in after, f"بيانات SQLite ضاعت بعد إعادة الإنشاء — الـ volume ليس دائمًا؟\n{after[:300]}"
+        after = curl("GET", f"{fe}/api/v1/sessions/{session_id}", "-H", f"X-API-Key: {api_key}")
+        assert session_id in after and "aatm-c740feee" in after, (
+            f"بيانات SQLite ضاعت بعد إعادة الإنشاء — الـ volume ليس دائمًا؟\n{after[:400]}"
+        )
 
-        # 5) ملف القاعدة داخل مسار الـ volume، لا داخل الصورة.
-        inside = compose("exec", "-T", "backend", "python", "-c",
-                         "import glob; print(sorted(glob.glob('/app/data/*')))")
-        assert "nexus.db" in inside.stdout, f"ملف القاعدة ليس في مسار الـ volume: {inside.stdout}{inside.stderr}"
-
-        # 6) الحاويات لا تعمل كجذر (قاعدة الأمان في AGENTS).
+        # 7) الأمان: الحاوية لا تعمل بالجذر.
         who = compose("exec", "-T", "backend", "id", "-u")
         assert who.stdout.strip() != "0", f"يجب أن تعمل الخلفية بمستخدم غير جذري: {who.stdout.strip()}"
     finally:

@@ -47,11 +47,22 @@ if (-not (Test-Path $VenvDir)) {
 $ReqFile = Join-Path $RootDir "backend/requirements.txt"
 if (Test-Path $ReqFile) {
     Write-Host "تثبيت متطلبات الخلفية من backend/requirements.txt..."
-    $ActivateScript = Join-Path (Join-Path $VenvDir 'Scripts') 'Activate.ps1'
-    # تجاوز قيود ExecutionPolicy لهذه الجلسة فقط
-    & $ActivateScript
-    & $PythonExe -m pip install --upgrade pip
-    & $PythonExe -m pip install -r $ReqFile
+    # لا «تفعيل» للبيئة هنا: تفعيل PowerShell يوجد فقط في تخطيط Windows
+    # (Scripts/Activate.ps1)، بينما Linux/macOS يضعان bin/activate لـ sh.
+    # المسار المحمول هو نداء مفسّر البيئة مباشرة — وهو ما يفعله التفعيل أصلاً.
+    $VenvCandidates = @(
+        (Join-Path $VenvDir 'Scripts/python.exe'),
+        (Join-Path $VenvDir 'bin/python'),
+        (Join-Path $VenvDir 'bin/python3')
+    )
+    $VenvPython = $VenvCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $VenvPython) {
+        Write-Warning "لم يُعثر على مفسّر داخل $VenvDir — سيُستخدم $PythonExe العام."
+        $VenvPython = $PythonExe
+    }
+    Write-Host "مفسّر البيئة: $VenvPython"
+    & $VenvPython -m pip install --upgrade pip
+    & $VenvPython -m pip install -r $ReqFile
 } else {
     Write-Host "ملف backend/requirements.txt غير موجود بعد (سينشأ في المرحلة 2). تخطي تثبيت الحزم الخلفية."
 }

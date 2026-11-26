@@ -5,7 +5,8 @@
 #   1) أنشئ .env إن لم يكن موجودًا:  cp .env.example .env   (أو: ./scripts/setup.sh)
 #   2) البناء والتشغيل:              docker compose up -d --build
 #   3) الواجهة:                      http://localhost:3000  (توجّه /api و /ws للخلفية)
-#      الخلفية مباشرة:               http://localhost:8000/api/health
+#      الخلفية مباشرة:               http://localhost:8000/api/v1/health
+#      أول تشغيل: طبّق الهجرات      docker compose exec backend alembic upgrade head
 #   4) أوقف دون حذف البيانات:        docker compose down
 #      حذف بيانات القاعدة أيضًا:     docker compose down -v
 #
@@ -36,20 +37,32 @@ services:
       # النشر على المضيف يتحكّم به BACKEND_HOST_PORT.
       BACKEND_PORT: "8000"
       DATA_DIR: /app/data
-      # داخل الحاوية يجب أن تشير SQLite إلى مسار الـ volume الدائم، لا إلى ./nexus.db
-      # المحلي. تجاوزها ممكن بتعيين NEXUS_SQLITE_URL في .env.
+      # حزم الخلفية جذرها ``app`` داخل backend/ ومنفذ ASGI هو app.main:app؛ يُصرَّح
+      # بهما هنا ليظهر عقد التشغيل في ملف النشر لا في الصورة وحدها.
+      APP_IMPORT: "${APP_IMPORT:-app.main:app}"
+      PYTHONPATH: /app/backend
+      # بادئة REST كما تعرفها الخلفية (Settings.api_v1_prefix)، وتُستخدم أيضًا في
+      # مسار HEALTHCHECK داخل الصورة فيبقى الطرفان متطابقين دائمًا.
+      API_V1_PREFIX: "${API_V1_PREFIX:-/api/v1}"
+      # داخل الحاوية يجب أن تشير SQLite إلى مسار الـ volume الدائم، لا إلى المسار
+      # النسبي ./var/aatm.db الذي تستخدمه الخلفية محليًا. التجاوز بـ NEXUS_SQLITE_URL.
       # ملاحظة أولوية: environment تتقدّم على env_file في Compose، لذا هذا المسار هو
       # ما تراه الخلفية داخل الحاوية حتى لو عرّف .env مسارًا محليًا.
-      DATABASE_URL: "${NEXUS_SQLITE_URL:-sqlite:////app/data/nexus.db}"
-      APP_ENV: "${APP_ENV:-development}"
+      DATABASE_URL: "${NEXUS_SQLITE_URL:-sqlite:////app/data/aatm.db}"
+      # خرائط من مفاتيح .env الخاصة بالمشروع إلى حقول Settings في الخلفية.
+      ENVIRONMENT: "${APP_ENV:-development}"
+      DEBUG: "${APP_DEBUG:-false}"
     volumes:
       # volume مُسمّى لملف قاعدة البيانات: البيانات تنجو من docker compose down
       # ومن إعادة إنشاء الحاويات، ولا تُكتب داخل الصورة.
       - nexus-data:/app/data
+      # الهجرات (Alembic) خطوة تشغيل صريحة في وضع الإنتاج:
+      #   docker compose exec backend alembic upgrade head
+      # وفي وضع التطوير يفعّل docker-compose.override.yml MIGRATE_ON_START=1.
     ports:
       - "${BACKEND_HOST_PORT:-8000}:8000"
     # لا healthcheck هنا: الفحص معرّف في الصورة (docker/Dockerfile.backend) بقواعده
-    # الكاملة (HEALTHCHECK_PATH، وتراجع إلى ${API_PREFIX}/health). إعادة التصريح به في
+    # الكاملة (HEALTHCHECK_PATH، والتراجع إلى ${API_V1_PREFIX}/health). إعادة التصريح به في
     # Compose تُنشئ نسختين مختلفتين من نفس الفحص — اترك المصدر واحدًا.
 
   # -------------------------------------------------------------------------

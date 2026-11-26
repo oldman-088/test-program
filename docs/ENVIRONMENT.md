@@ -86,18 +86,34 @@ docker-compose -> MISSING   nginx -> MISSING   pwsh -> MISSING   shellcheck -> M
 1. **فحص الصيغة النحوية**: `bash -n scripts/dev.sh` (نجح)، وموازنة أقواس
    `docker/nginx.conf`، وتحليل `docker-compose.yml` و `docker-compose.override.yml`
    بـ PyYAML: `OK services: ['backend', 'frontend']` للملفين.
-2. **تشغيل فعلي بلا حاويات**: `scripts/dev.sh --dry-run` يطبع الأوامر الحقيقية، ثم
-   تشغيل فعلي لـ `uvicorn` على المنفذ المحلي مع اختبار الاستجابة والتنظيف:
+2. **تشغيل فعلي بلا حاويات مقابل الخلفية المدموجة**: `scripts/dev.sh --dry-run` يطبع
+   الأوامر الحقيقية، والاختبار `test_dev_sh_really_starts_and_stops_the_real_backend`
+   يقلع التطبيق الحقيقي (نسخة من `backend/` المستودع) على منفذ محلي ويستعلمه ثم ينظّف:
    ```console
    $ bash scripts/dev.sh --dry-run --host 127.0.0.1 --port 8137
+   ==> ملف .env موجود بالفعل، لا يُكتب فوقه.
    ==> الخلفية: تحضير بيئة بايثون...
-   ==> الخلفية ستعمل على http://127.0.0.1:8137/api  (APP_IMPORT=backend.app.main:app)
-   [dry-run] uvicorn 'backend.app.main:app' --host '127.0.0.1' --port '8137' --reload --reload-dir '<root>/backend'
+   [dry-run] <repo>/.venv/bin/python -m pip install --upgrade pip && … -m pip install -r backend/requirements.txt && … -m pip install 'uvicorn>=0.30'
+   ==> الخلفية ستعمل على http://127.0.0.1:8137/api/v1/health  (APP_IMPORT=app.main:app)
+   [dry-run] (cd '<repo>/backend' && env PYTHONPATH='<repo>/backend' uvicorn 'app.main:app' --host '127.0.0.1' --port '8137' --reload --reload-dir '<repo>/backend')
    ==> dry-run اكتمل — لم تُشغَّل أي عملية.
    ```
-   وفي التشغيل الحقيقي (نسخة مؤقتة فيها `backend/app/main.py` بديل) استجابت الخلفية
-   `200 OK` على `http://127.0.0.1:8391/api/health`، وعند `SIGTERM` أُغلقت الخلفية
-   والمنفذ ولم تبقَ عملية يتيمة.
+   وهذا ناتج التشغيل الفعلي المكافئ مع `--migrate` (أُعيد قياسه بعد دمج `backend/` في هذا
+   الفرع)، ويؤكده الاختبار آليًا متى توفرت uvicorn:
+   ```console
+   ==> تطبيق هجرات Alembic قبل التشغيل...
+   INFO  [alembic.runtime.migration] Running upgrade  -> 0001, 0001: جدول ``agent_sessions``.
+   INFO  [alembic.runtime.migration] Running upgrade 0001 -> 0002, 0002: عمود ``last_heartbeat_at``...
+   INFO:     Uvicorn running on http://127.0.0.1:8399 (Press CTRL+C to quit)
+   --- endpoints ---
+   health=200                                   # GET /api/v1/health
+   wrongpath=404                                # GET /api/health — مسار بلا بادئة مرفوض
+   {"status":"ready","database":"up"}           # GET /api/v1/health/ready
+   create_nokey=401                             # POST /api/v1/sessions بلا X-API-Key
+   create_key=201                               # POST /api/v1/sessions بالمفتاح من البيئة
+   aatm.db                                      # backend/var/aatm.db أنشأته الخلفية
+   --- orphans: []                              # بعد SIGTERM: لا منفذ مفتوح ولا عملية باقية
+   ```
 3. **فحص صيغة ملفات الحاويات بأدوات حقيقية** (بلا Docker):
    - `docker/nginx.conf` بمحلّل قواعد nginx (حزمة `crossplane`) بعد لفّه في سياق `http{}`:
      النتيجة `status: ok` و `errors: []`، والمواقع المحلَّلة `= /healthz` و `^~ /api/` و
@@ -106,9 +122,12 @@ docker-compose -> MISSING   nginx -> MISSING   pwsh -> MISSING   shellcheck -> M
      صور الأساس المقروءة `[python:3.12-slim]` و `[node:20-alpine, nginx:alpine, node:20-alpine]`
      مع سلاسل ENV/LABEL/CMD مقروءة — أي أن استمرارات الخط الساطع واقتباسات JSON صالحة.
 4. **اختبارات آلية** في `tests/test_ops_containers.py`: الناتج الفعلي في هذه البيئة
-   `60 passed, 6 skipped` (التخطّي لغياب `pwsh` و Docker)، و 5 اختبارات
-   مُخصصة لبيئة فيها Docker (تحليل `docker compose config`، ثم بناء الصور وتشغيلها) — **نجحت جميعها في CI**
-   كما هو موثّق أدناه تحت «نتيجة البناء الفعلية في بيئة فيها Docker».
+   `61 passed, 7 skipped` (التخطّي لغياب `pwsh` و Docker، ولاختبار تشغيل uvicorn حين لا تكون
+   مثبتة؛ وببيئة فيها uvicorn تصبح `48 passed, 5 skipped`)، و 5 اختبارات
+   مُخصصة لبيئة فيها Docker (تحليل `docker compose config`، ثم بناء الصور وتشغيلها) —
+   **نجحت جميعها في CI على رأس PR #11 السابق** كما هو موثّق أدناه تحت «نتيجة البناء
+   الفعلية في بيئة فيها Docker»؛ بعد دمج `backend/` الحقيقي يعمل اختبار التكامل
+   مقابلها، فتُعاد القراءة على الرأس الجديد وتُحدَّث الجداول من تلك التشغيلات.
 
 ### أوامر التحقق المطلوبة على مضيف فيه Docker
 لم يُتحقَّق من هذا في بيئة العمل (Docker غير مثبت، انظر ما سبق)، وهو ما تشغّله وظيفة
@@ -120,9 +139,10 @@ $ docker compose config --quiet          # يفحص docker-compose.yml ودمج 
 $ docker compose build                   # docker/Dockerfile.backend + docker/Dockerfile.frontend
 $ docker compose up -d --wait
 $ curl -fsS http://localhost:3000/ | head -5             # الواجهة من nginx على منفذ منشور
-$ curl -fsS http://localhost:3000/api/health            # /api يمرّ إلى الخلفية عبر nginx
-$ curl -fsS http://localhost:8000/api/health            # الخلفية مباشرة
-$ docker compose exec backend python -c "import glob;print(glob.glob('/app/data/*'))"   # nexus.db في الـ volume
+$ curl -fsS http://localhost:3000/api/v1/health         # /api/v1 يمرّ إلى الخلفية عبر nginx
+$ curl -fsS http://localhost:8000/api/v1/health         # الخلفية مباشرة
+$ docker compose exec backend alembic upgrade head      # الهجرات خطوة صريحة في الإنتاج
+$ docker compose exec backend python -c "import glob;print(glob.glob('/app/data/*'))"   # aatm.db في الـ volume
 $ docker compose down && docker compose up -d --wait    # البيانات باقية: nexus-osint-data volume
 $ docker compose down -v                                # هنا فقط تُمسح قاعدة البيانات
 ```
@@ -140,18 +160,21 @@ $ docker compose down -v                                # هنا فقط تُمس
   الصورتين، ترفع Stack، تتحقق أن الواجهة تُخدم على منفذ منشور، أن `/api` يصل إلى
   الخلفية، وأن صفّ SQLite المكتوب في الـ volume يبقى بعد `docker compose down` ثم
   `up`. الاختبارات: `test_docker_compose_up_serves_frontend_proxies_api_and_persists_sqlite`.
-- **لا يمكن بناء الصورتين من `main` الآن حتى مع Docker متاح**، لأن هذه المهمة تفتح بعد
-  مهام لم تُدمج بعد: `main@cbc9c69` لا يحتوي `backend/` ولا `frontend/` إطلاقًا (المحتوى
-  الحالي مخرجات المرحلة 1 التأسيسية فقط). ملفا Dockerfile مكتوبان على العقد المعلن في
-  تلك المهام، ويفشل البناء برسالة واضحة حتى توافرها:
+- **حالة الصور مقابل `main` بعد دمج شريحة الخلفية**: أُنجزت مزامنة هذا الفرع مع
+  `main@450ef76` أثناء مراجعة PR #11، فصارت `backend/` حقيقية في المستودع
+  (حزمة `app` + `requirements.txt` + Alembic + `docs/API.md`) وتُبنى صورة الخلفية
+  وتُختبَر مقابل التطبيق نفسه. أما `frontend/` فما زال غائبًا (`git ls-files frontend
+  | wc -l` = 0)، فلا تُبنى صورة الواجهة من المستودع كما هو؛ تُختبَر مقابل **نموذج مؤقت**
+  لـ `frontend/` يُنشأ داخل الدليل المؤقت للاختبار فقط ولا يُلتزم أبدًا. العقد الذي
+  تفترضه الملفات ومالكه:
 
   | ما تحتاجه الصورة | المسار المطلوب | من يملكه |
   |---|---|---|
-  | `docker/Dockerfile.backend` | `backend/requirements.txt` + `backend/app/main.py` يصدّر `app` | مهمة النواة الخلفية (1) |
-  | قاعدة بيانات SQLite | `DATABASE_URL` (يُثبَّته Compose على `sqlite:////app/data/nexus.db`) | مهمة قاعدة البيانات (2) |
+  | `docker/Dockerfile.backend` | `backend/requirements.txt` + حزمة `backend/app` بمنفذ `app.main:app` | **مدموج** من `main` (AATM-984687b7) |
+  | قاعدة بيانات SQLite | `DATABASE_URL` (يُثبَّته Compose على `sqlite:////app/data/aatm.db`) | **مدموج**؛ `backend/var/` مستثنى في `.gitignore` |
   | `docker/Dockerfile.frontend` | `frontend/package.json` مع `scripts.build` يُنتج `dist/` و `scripts.dev` | مهمة الواجهة (3) |
 
-- **قيد في الحوكمة**: نصّ المهمة أرفق prefight بقيمة `main` متوقعة
+- **قيد في الحوكمة**: نصّ المهمة أرفق preflight بقيمة `main` متوقعة
   `1da237fee8ee5e6abacfc8a5402effa9af4568c6`، بينما `origin/main` فعليًا عند
   `cbc9c69483d7ed7705fd4eba79ab2fbcd57c8219` (وهو نفس الـ SHA الذي فُرِع منه هذا العمل؛
   الـ SHA المتوقع غير موجود في المستودع إطلاقًا — `git cat-file` يفشل و `api.github.com`
@@ -183,15 +206,21 @@ ops-docker: 50 passed, 1 skipped in 30.15s
 SKIPPED [1] tests/test_ops_containers.py:535: uvicorn غير مثبت في بيئة الاختبار
 ```
 
+هذه النتائج مأخوذة من رأس PR #11 السابق (`fcc9940`)، حيث كانت `backend/` غائبة عن
+الفرع؛ بعد المزامنة مع `main` تُقاس الصور مرة أخرى على الرأس الجديد بنفس الوظيفة.
+
 المُثبَت آليًا هناك (وليس بالادعاء):
 - `docker compose config --quiet` نجح على `docker-compose.yml` وعلى دمجه مع
-  `docker-compose.override.yml` — من جذر المستودع نفسه رغم غياب `backend/` و `frontend/`.
+  `docker-compose.override.yml` — من جذر المستودع نفسه.
 - `docker compose build` بنى الصورتين من `docker/Dockerfile.backend` و
-  `docker/Dockerfile.frontend` (نماذج `backend/` و `frontend/` مؤقتة في الدليل
-  المؤقت للاختبار فقط).
+  `docker/Dockerfile.frontend` (نموذج `frontend/` مؤقت في الدليل المؤقت للاختبار فقط؛
+  صورة الخلفية قُوبلت بنسخة `backend/` الحقيقية).
 - `docker compose up -d --wait`: الحاوية الخلفية `healthy` والأمامية `healthy`.
 - الواجهة تُخدم على منفذ منشور عبر nginx (index + `app.css` + `SPA fallback`)،
   و `/api/health` يمرّ إلى خدمة `backend:8000`، والخلفية تجيب على منفذها المنشور.
+  (كان ذلك مقابل النموذج المؤقت الذي كان يستخدمه اختبار التكامل آنذاك؛ بعد المزامنة مع
+  `main` يعمل نفس الاختبار على `backend/` الحقيقية ويتحقق من `/api/v1/health` و
+  `/api/v1/health/ready` و `401` بلا مفتاح و `201` به، بعد `alembic upgrade head`.)
 - صف SQLite المكتوب عبر `/api/db/hit` بقي بعد `docker compose down` ثم `up`
   (`nexus-osint-data`)، و`nexus.db` وُجد داخل `/app/data`، والحاوية الخلفية لا تعمل
   بالجذر (`id -u` = 10001).
@@ -220,10 +249,25 @@ SKIPPED [1] tests/test_ops_containers.py:535: uvicorn غير مثبت في بي�
 - **البيانات**: `nexus-osint-data` volume باسم ثابت مُركَّب على `/app/data`؛ لذلك
   `docker compose down` يحفظ البيانات، و `docker compose down -v` يمسحها. لا تُكتب
   القاعدة داخل الصورة.
-- **`/api` يمر كما هو** (لا `rewrite`)، أي أن الخلفية يجب أن تركّب موجّهاتها تحت
-  `API_PREFIX=/api`. إن اختارت مهمة النواة مسارًا جذريًا بدون بادئة، فالتعديل في
-  `docker/nginx.conf` بسطر `rewrite ^/api/(.*) /$1 break;` داخل `location ^~ /api/`.
-- **فحص الصحة**: `HEALTHCHECK_PATH` (افتراضيًا `/api/health`). عطّله بـ
+- **`/api` يمر كما هو** (لا `rewrite`)، لأن الخلفية المدموجة تركّب موجّهاتها تحت
+  `API_V1_PREFIX=/api/v1` (`Settings` في `backend/app/core/config.py`)، فيصل
+  `/api/v1/...` إلى نفس المسار في الطرفين. لو أُزيلت البادئة لاحقًا فالتعديل المطلوب
+  سطر واحد في `docker/nginx.conf`: `rewrite ^/api/(.*) /$1 break;` داخل `location ^~ /api/`.
+- **عقد إقلاع الخلفية** (مأخوذ من `backend/` المدموجة، وقابل للقياس محليًا):
+  - حزمة Python جذرها `app` داخل `backend/` ⇒ `APP_IMPORT=app.main:app` مع
+    `PYTHONPATH=/app/backend` في الحاوية، ومع `PYTHONPATH=backend` و cwd=`backend/`
+    في `scripts/dev.sh`/`dev.ps1` — لا `backend.app.main:app`.
+  - `backend/requirements.txt` **لا يعلن uvicorn** (وكذلك `requirements-dev.txt`)، لذلك
+    يثبّته `docker/Dockerfile.backend` والسكربتات صراحةً بـ `uvicorn>=0.30`.
+  - `DATABASE_URL` الافتراضي `sqlite:///./var/aatm.db`؛ في الحاوية يُستبدل بـ
+    `sqlite:////app/data/aatm.db` داخل الـ volume وإلا ضاعت البيانات عند `down`.
+  - الهجرات خطوة تشغيل لا أثر جانبي: `alembic upgrade head` صراحةً في الإنتاج،
+    و `MIGRATE_ON_START=1` في `docker-compose.override.yml` (وضع التطوير) ينفّذها CMD
+    الصورة قبل uvicorn؛ وللتشغيل المحلي علم `--migrate` / `-Migrate`.
+  - `/api/v1/sessions*` تتطلب `X-API-Key`، والخادم نفسه يتطلب `API_KEY` وإلا أجاب 500
+    بدل 401؛ لذلك يُمرَّر المفتاح من `.env` (لا قيمة له في Git).
+- **فحص الصحة**: `HEALTHCHECK_PATH` (افتراضيًا `${API_V1_PREFIX}/health` =
+  `/api/v1/health`). عطّله بـ
   `HEALTHCHECK_PATH=""` إن لم يكن المسار موجودًا بعد، وإلا ستبقى الحاوية `unhealthy`
   ويتعذّر `docker compose up --wait`.
 - **الإقلاع قبل جاهزية الخلفية**: `nginx.conf` يستخدم `resolver 127.0.0.11` مع

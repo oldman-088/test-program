@@ -20,6 +20,10 @@ services:
     # إعادة تحميل تلقائي عند أي تغيير في backend/ (المجلد يُركب فوق نسخة الصورة).
     environment:
       UVICORN_RELOAD: "1"
+      # في التطوير فقط تُطبَّق هجرات Alembic عند إقلاع الحاوية، حتى تعمل نقاط
+      # /api/v1/sessions مباشرة بعد `docker compose up`. في الإنتاج الخطوة صريحة:
+      #   docker compose exec backend alembic upgrade head
+      MIGRATE_ON_START: "1"
       # التطوير المحلي يكتب قاعدة SQLite في نفس الـ volume حتى لا تتضاعف البيانات.
       APP_DEBUG: "true"
     volumes:

@@ -52,9 +52,11 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r backend/requirements.txt   # عند توفرها في المرحلة 2
+pip install 'uvicorn>=0.30'               # لازمة للتشغيل وغير معلنة في requirements.txt
 
-# تشغيل الخادم (عند توفر الكود)
-uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
+# تشغيل الخادم (حزمة الخلفية جذرها app داخل backend/)
+(cd backend && PYTHONPATH=. uvicorn app.main:app --reload --host 0.0.0.0 --port 8000)
+# ملاحظة: uvicorn غير معلنة في backend/requirements.txt — تُثبَّت صراحة كما أسفله
 ```
 
 ### الواجهة الأمامية (فرونت إند)
@@ -70,7 +72,8 @@ npm run dev
 cp .env.example .env
 docker compose up -d --build      # البناء + التشغيل (يتطلب Docker)
 # الواجهة: http://localhost:3000  (nginx يخدم الملفات ويوجّه /api و /ws إلى الخلفية)
-# الخلفية:  http://localhost:8000/api/health
+# الخلفية:  http://localhost:8000/api/v1/health   (ومعها /api/v1/health/ready)
+# أول تشغيل بعد دمج الهجرات: docker compose exec backend alembic upgrade head
 docker compose down               # إيقاف مع بقاء بيانات SQLite (volume: nexus-osint-data)
 docker compose down -v            # إيقاف مع حذف البيانات
 ```
@@ -81,9 +84,11 @@ docker compose down -v            # إيقاف مع حذف البيانات
 ```bash
 ./scripts/dev.sh                  # الخلفية (uvicorn --reload) + الواجهة (npm run dev)
 ./scripts/dev.sh --backend-only   # الخلفية وحدها
+./scripts/dev.sh --migrate        # يطبّق Alembic (upgrade head) قبل التشغيل
 ./scripts/dev.sh --dry-run        # طباعة الأوامر دون تنفيذها
 # Windows / PowerShell
 .\scripts\dev.ps1 -BackendOnly -Port 8000
+.\scripts\dev.ps1 -Migrate
 ```
 
 ### توليد ملف `.env`
@@ -97,4 +102,9 @@ docker compose down -v            # إيقاف مع حذف البيانات
 Docker متوفر) — التفاصيل والنتائج في القسم الثاني من المستند.
 
 ## تنبيه مهم
-المراحل **2 إلى 7 لم تُنفذ بعد**. هذا المستند والمخرجات المرتبطة خاصة بـ **المرحلة 1 فقط** ولا تمثل أي وظيفة تطبيقية مكتملة. لا تُبنى أي ميزة في هذه المهمة.
+المراحل **2 إلى 7 لم تُنفذ كلها بعد**: هذا المستند ومخرجاته لا تمثل أي وظيفة تطبيقية
+مكتملة، ولا تُبنى أي ميزة في هذه المهمة (النشر بالحاويات والتشغيل المحلي فقط).
+حالة المسارات كما هي عند هذا الرأس — مقاسة بـ `git ls-files`، لا مفترضة: `backend/`
+**موجودة** (شريحة الخلفية من `main`: حزمة `app` + `requirements.txt` + Alembic +
+`docs/API.md`)، و `frontend/` **غير موجودة بعد** (0 ملف متتبَّع)، لذلك تبقى صورة الواجهة
+بلا مصدر حقيقي تُبنى منه وتُختبَر في CI مقابل نموذج مؤقت.

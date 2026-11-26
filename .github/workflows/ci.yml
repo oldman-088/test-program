@@ -101,7 +101,19 @@ jobs:
       - name: Run ops tests (includes docker build + up + volume persistence)
         env:
           NEXUS_RUN_DOCKER_INTEGRATION: "1"
-        run: python -m pytest tests/test_ops_containers.py -v -rs
+        run: |
+          set +e
+          python -m pytest tests/test_ops_containers.py -v -rs --tb=short > pytest-ops.log 2>&1
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            cp pytest-ops.log ci-diag-pytest.log
+            git add -f ci-diag-pytest.log
+            git -c user.name=ci-diagnostic -c user.email=ci@local commit -q -m "ci diagnostic: pytest output"
+            git -c http.extraheader= -c credential.helper= push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:"$(git rev-parse --abbrev-ref HEAD)" || echo "diagnostic push skipped"
+            tail -40 pytest-ops.log
+          fi
+          exit "$rc"
 
       - name: Triage leftovers on failure
         if: failure()

@@ -1,0 +1,84 @@
+# =============================================================================
+# docker-compose.yml — تشغيل NEXUS OSINT بالحاويات (البند 3 و 20 و 22)
+#
+# الاستخدام:
+#   1) أنشئ .env إن لم يكن موجودًا:  cp .env.example .env   (أو: ./scripts/setup.sh)
+#   2) البناء والتشغيل:              docker compose up -d --build
+#   3) الواجهة:                      http://localhost:3000  (توجّه /api و /ws للخلفية)
+#      الخلفية مباشرة:               http://localhost:8000/api/health
+#   4) أوقف دون حذف البيانات:        docker compose down
+#      حذف بيانات القاعدة أيضًا:     docker compose down -v
+#
+# ملفات التكامل (override) للتسخّر أثناء التطوير: docker-compose.override.yml
+# (يُدمج تلقائيًا مع هذا الملف عند تشغيل `docker compose up` بلا وسائط).
+#
+# كل متغيّرات المنفذ تُقرأ من .env الخاص بالمشروع (Compose يقرأه تلقائيًا للـ
+# interpolation، كما أنه يُمرَّر للحاويات عبر env_file).
+# =============================================================================
+
+name: nexus-osint
+
+services:
+  # -------------------------------------------------------------------------
+  # الخلفية: FastAPI + Uvicorn على 0.0.0.0:8000 داخل الحاوية
+  # -------------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    image: nexus-osint-backend:local
+    restart: unless-stopped
+    # تمرير .env إلى الحاوية (البند 3). لا تُخزَّن أسرار حقيقية هنا.
+    env_file:
+      - .env
+    environment:
+      # المنفذ الداخلي مثبّت على 8000 ليطابق ما يتوقعه nginx.conf (backend:8000).
+      # النشر على المضيف يتحكّم به BACKEND_HOST_PORT.
+      BACKEND_PORT: "8000"
+      DATA_DIR: /app/data
+      # داخل الحاوية يجب أن تشير SQLite إلى مسار الـ volume الدائم، لا إلى ./nexus.db
+      # المحلي. تجاوزها ممكن بتعيين NEXUS_SQLITE_URL في .env.
+      # ملاحظة أولوية: environment تتقدّم على env_file في Compose، لذا هذا المسار هو
+      # ما تراه الخلفية داخل الحاوية حتى لو عرّف .env مسارًا محليًا.
+      DATABASE_URL: "${NEXUS_SQLITE_URL:-sqlite:////app/data/nexus.db}"
+      APP_ENV: "${APP_ENV:-development}"
+    volumes:
+      # volume مُسمّى لملف قاعدة البيانات: البيانات تنجو من docker compose down
+      # ومن إعادة إنشاء الحاويات، ولا تُكتب داخل الصورة.
+      - nexus-data:/app/data
+    ports:
+      - "${BACKEND_HOST_PORT:-8000}:8000"
+    # لا healthcheck هنا: الفحص معرّف في الصورة (docker/Dockerfile.backend) بقواعده
+    # الكاملة (HEALTHCHECK_PATH، وتراجع إلى ${API_PREFIX}/health). إعادة التصريح به في
+    # Compose تُنشئ نسختين مختلفتين من نفس الفحص — اترك المصدر واحدًا.
+
+  # -------------------------------------------------------------------------
+  # الواجهة: بناء node:20-alpine ثم خدمة الملفات بـ nginx:alpine
+  # -------------------------------------------------------------------------
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+      target: runtime
+    image: nexus-osint-frontend:local
+    restart: unless-stopped
+    depends_on:
+      - backend
+    env_file:
+      # .env يُمرَّر للواجهة أيضًا ليقرأ الحاويان المشتركة (مثل NGINX_PORT الذي
+      # يستخدمه HEALTHCHECK في الصورة) بدل تكرار القيم في ملفين.
+      - .env
+    volumes:
+      # اختياري: إعادة توليد dist على المضيف دون إعادة بناء الصورة. احذف التعليق
+      # لتجاوز nginx إلى ملفات مضيفة جاهزة (يطابق مسار build في frontend).
+      # - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "${FRONTEND_PORT:-3000}:8080"
+
+volumes:
+  # اسم ثابت خارج نطاق المشروع: البيانات تبقى بعد `docker compose down` وتُحذف
+  # فقط مع `docker compose down -v`.
+  nexus-data:
+    name: nexus-osint-data
+    driver: local

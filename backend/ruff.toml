@@ -1,0 +1,19 @@
+# إعدادات ruff لشريحة الخلفية — البند 21 · المهمة AATM-984687b7.
+# مستقلة عن أي pyproject: التلنت يعمل من ``backend/`` ومن جذر المستودع بنفس النتيجة.
+line-length = 118
+src = ["."]
+target-version = "py311"
+
+[lint]
+select = ["F", "E", "W", "I", "UP", "B"]
+
+[lint.isort]
+# ``app`` هو الشيفرة الأولى في المشروع؛ ووحدا الاختبار هذان محليان لا من third-party.
+known-first-party = ["app", "api_contract", "conftest"]
+
+[lint.per-file-ignores]
+# env.py يستورد وحدات التطبيق بعد تعديل sys.path — ترتيب الاستيراد مقصود.
+"alembic/env.py" = ["E402", "I001"]
+# قالب Alembic يُولّد بهذا الترتيب؛ لا معنى لإعادة ترتيبه.
+"alembic/script.py.mako" = ["I001"]
+"alembic/versions/*.py" = ["I001"]

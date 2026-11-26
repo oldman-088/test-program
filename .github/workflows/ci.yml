@@ -49,3 +49,30 @@ jobs:
 
       - name: Verify .env remains after setup.ps1
         run: test -f .env && echo ".env exists after setup.ps1"
+
+  # البند 21 · المهمة AATM-984687b7 — شريحة الخلفية واختبار تطابق العقد.
+  # وظيفة مستقلة: وظيفة `test` لا تُثبّت إلا pytest، واختبارات backend تحتاج
+  # fastapi/sqlalchemy/alembic/httpx (انظر AGENTS.md · E49).
+  backend-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend + test dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run backend test suite (includes the API contract test)
+        run: python -m pytest -v
+
+      - name: Lint backend
+        run: |
+          pip install ruff
+          ruff check .   # الإعداد في backend/ruff.toml

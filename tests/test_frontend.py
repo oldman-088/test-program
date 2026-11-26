@@ -52,19 +52,26 @@ def test_frontend_files_exist():
 
 def test_api_client_follows_contract():
     api = (FRONTEND / "src/lib/api.ts").read_text(encoding="utf-8")
+    # Fixed contract (docs/API.md, main): every path under the /api/v1 prefix;
+    # the two public health endpoints plus the protected dashboard endpoints.
     for path in [
-        "/api/health",
-        "/api/health/db",
-        "/api/investigations/recent",
-        "/api/stats",
-        "/api/integrations",
-        "/api/ai/provider",
-        "/api/tasks/progress",
-        "/api/reports/latest",
-        "/api/investigations",
+        "/api/v1/health",
+        "/api/v1/health/ready",
+        "/api/v1/investigations/recent",
+        "/api/v1/stats",
+        "/api/v1/integrations",
+        "/api/v1/ai/provider",
+        "/api/v1/tasks/progress",
+        "/api/v1/reports/latest",
+        "/api/v1/investigations",
     ]:
         assert path in api, f"api.ts يفتقر للمسار: {path}"
+    # Contract auth: X-API-Key on protected endpoints; public health endpoints excluded.
+    assert "X-API-Key" in api
+    assert "PUBLIC_PATHS" in api
+    assert "/api/health/db" not in api
     assert "VITE_API_BASE_URL" in api
+    assert "VITE_API_KEY" in api
     assert "http://localhost" not in api and "https://localhost" not in api
     assert "http://127.0.0.1" not in api and "https://127.0.0.1" not in api
 

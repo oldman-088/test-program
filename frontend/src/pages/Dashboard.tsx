@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, api, type QueryType } from '../lib/api';
+import { ApiError, api, type ErrorDetail, type QueryType } from '../lib/api';
 import { useHealth } from '../hooks/useHealth';
 import { useLocale } from '../hooks/useLocale';
 import { Badge } from '../components/ui/badge';
@@ -22,7 +22,7 @@ const SEARCH_TYPES: QueryType[] = [
 type SubmitError = {
   code?: string;
   message: string;
-  details?: string | null;
+  details?: ErrorDetail[] | null;
 };
 
 type SectionState<T> =
@@ -52,7 +52,7 @@ function SectionLoading() {
 
 export function Dashboard() {
   const { t } = useLocale();
-  const { health, healthDb, loading: healthLoading, error: healthError, refresh: refreshHealth } =
+  const { health, healthReady, loading: healthLoading, error: healthError, refresh: refreshHealth } =
     useHealth();
 
   const [query, setQuery] = useState('');
@@ -155,8 +155,7 @@ export function Dashboard() {
               message: err instanceof Error ? err.message : 'Request failed',
               details: null,
             },
-      );
-    } finally {
+      );    } finally {
       setSubmitting(false);
     }
   }
@@ -169,7 +168,7 @@ export function Dashboard() {
         <p className="text-sm text-muted-foreground">{t('dashboard.title')}</p>
       </div>
 
-      {/* Backend + DB health (real /api/health and /api/health/db) */}
+      {/* Backend + DB health (public contract endpoints /api/v1/health and /api/v1/health/ready) */}
       <Card>
         <CardHeader>
           <CardTitle>{t('dashboard.backendStatus')}</CardTitle>
@@ -177,7 +176,7 @@ export function Dashboard() {
         <CardContent>
           {healthLoading ? (
             <SectionLoading />
-          ) : healthError || !health || !healthDb ? (
+          ) : healthError || !health || !healthReady ? (
             <div role="alert" className="space-y-2">
               <p className="text-sm text-destructive">
                 {healthError ?? t('dashboard.backendUnavailable')}
@@ -194,18 +193,18 @@ export function Dashboard() {
                   <Badge variant={health.status === 'ok' ? 'default' : 'destructive'}>
                     {health.status}
                   </Badge>{' '}
-                  <span className="text-muted-foreground">v{health.version}</span>
+                  <span className="text-muted-foreground">
+                    v{health.version} · {health.environment}
+                  </span>
                 </dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">{t('dashboard.databaseStatus')}</dt>
                 <dd>
-                  <Badge variant={healthDb.status === 'ok' ? 'default' : 'destructive'}>
-                    {healthDb.status}
+                  <Badge variant={healthReady.status === 'ready' ? 'default' : 'destructive'}>
+                    {healthReady.status}
                   </Badge>{' '}
-                  <span className="text-muted-foreground">
-                    {healthDb.database} · {healthDb.latency_ms}ms
-                  </span>
+                  <span className="text-muted-foreground">{healthReady.database}</span>
                 </dd>
               </div>
             </dl>
@@ -267,11 +266,18 @@ export function Dashboard() {
                   </p>
                 )}
                 <p>{submitError.message}</p>
-                {submitError.details !== undefined && (
-                  <p>
-                    <span className="font-medium">{t('common.errorDetails')}:</span>{' '}
-                    {submitError.details ?? '—'}
-                  </p>
+                {submitError.details != null && submitError.details.length > 0 && (
+                  <ul className="space-y-1">
+                    <li>
+                      <span className="font-medium">{t('common.errorDetails')}:</span>
+                    </li>
+                    {submitError.details.map((detail, index) => (
+                      <li key={`${detail.field ?? 'detail'}-${index}`}>
+                        {detail.field ? `${detail.field}: ` : ''}
+                        {detail.message ?? JSON.stringify(detail)}
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
             )}

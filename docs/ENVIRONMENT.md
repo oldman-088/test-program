@@ -175,7 +175,7 @@ $ docker compose down -v                                # هنا فقط تُمس
 
 ### نتيجة البناء الفعلية في بيئة فيها Docker (وظيفة CI `ops-docker`)
 Docker غير متوفر في بيئة العمل المحلية، لذلك نُفِّذ البناء والتشغيل في CI على
-`ubuntu-latest` (شغّال أخضر على هذا الطلب). الناتج الحرفي من تعليمة `::notice::`
+`ubuntu-latest` (والوظيفة خضراء على هذا الطلب). الناتج الحرفي من تعليمة `::notice::`
 التي تنشر ملخص pytest في آخر خطوة:
 
 ```console
@@ -198,7 +198,7 @@ SKIPPED [1] tests/test_ops_containers.py:535: uvicorn غير مثبت في بي�
 - `docker-compose.override.yml` يبدّل الواجهة إلى هدف `dev` ويخدم خادم التطوير
   على نفس المنفذ المنشور.
 - اختبارا `scripts/dev.ps1` مع `pwsh` الحقيقي: تحليل نحو dry-run نجحا.
-- السكربت `test_backend_healthcheck_command_actually_works` (محليًا وفي CI).
+- الاختبار `test_backend_healthcheck_command_actually_works` ينفّذ أمر `HEALTHCHECK` الحرفي من الـ Dockerfile مقابل خادم صلاحي (محليًا وفي CI).
 
 الوظيفة تنشر هذا الملخص كـ annotation لأن سجلات runner لا تُقرأ من بيئات العمل المعزولة
 هنا (المضيف الخارجي الوحيد المسموح هو `api.github.com`).

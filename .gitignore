@@ -6,3 +6,9 @@ __pycache__/
 .env
 *.sqlite3
 .mypy_cache/
+# ملفات التشغيل المحلي (المهمة 4: الحاويات والتطوير المحلي)
+data/
+*.db
+logs/
+.venv-test/
+*.egg-info/

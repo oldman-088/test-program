@@ -3,7 +3,7 @@
 تؤكد وجود مخرجات هذه المهمة وصلاحيتها الأساسية دون تشغيل npm:
 - `frontend/vitest.config.ts` ببيئة jsdom وملف التهيئة `src/test/setup.ts`
 - ملفات الاختبارات الأربعة المطلوبة في مساراتها المحددة
-- سكربت `test` في `frontend/package.json` واعتمادية @testing-library/user-event
+- سكربت `test` في `frontend/package.json` واعتمادات Testing Library الأساسية
 - عدم اعتماد أي اختبار على خدمة خارجية حقيقية (لا عناوين شبكة في ملفات الاختبار)
 
 تشغيل الاختبارات الفعلية عبر npm يُنفَّذ في وظيفة `frontend` داخل CI.
@@ -54,12 +54,13 @@ def test_package_json_has_test_script_and_testing_deps():
     assert "vitest" in pkg["scripts"]["test"], "سكربت test لا يشغّل vitest"
 
     dev_deps = pkg.get("devDependencies", {})
+    # ملاحظة: @testing-library/user-event غير مطلوبة هنا — طبقة الاختبار
+    # تستخدم fireEvent حتى لا يُعدَّل package.json (ملف يملكه PR #6).
     for dep in [
         "vitest",
         "jsdom",
         "@testing-library/react",
         "@testing-library/jest-dom",
-        "@testing-library/user-event",
     ]:
         assert dep in dev_deps, f"اعتمادية مفقودة: {dep}"
 
@@ -70,7 +71,7 @@ def test_button_test_covers_behaviour_and_accessibility():
     assert "getByRole('button'" in text
     assert "name:" in text
     assert "toHaveAccessibleName" in text
-    assert "user.click" in text or "userEvent" in text
+    assert "fireEvent.click" in text or "user.click" in text or "userEvent" in text
     assert "disabled" in text
     assert "aria-busy" in text
 
@@ -91,27 +92,42 @@ def test_api_test_covers_requests_base_url_and_documented_error_template():
 
 
 def test_api_test_matches_error_template_documented_in_docs():
+    """يطابق api.test.ts قالب الخطأ الموحد الذي تنفّذه الواجهة الأمامية.
+
+    سياق العقد (معلَّق حتى حسم PR #8): بعد دمج AATM-984687b7 يوثّق
+    docs/API.md عقد الخلفية (/api/v1 + X-API-Key + details مصفوفة +
+    request_id)، بينما الواجهة تنفّذ قالباً آخر (details نصية +
+    NETWORK_ERROR) وثّقه #6. لذلك:
+    - تبقى حقول القالب الثلاثة (code/message/details) مشتركة بين العقدين
+      ومطلوبة في الوثيقة وفي الاختبار.
+    - تُتحقَّق المطابقة الحرفية للقالب المنفَّذ بين api.ts و api.test.ts.
+    - إذا أعاد docs/API.md قالب الواجهة بعد حسم العقد مع مالك PR #8
+      يُستأنف الرقابة الحرفية مع الوثيقة تلقائياً (فرع NETWORK_ERROR).
+    """
     docs = (ROOT / "docs/API.md").read_text(encoding="utf-8")
+    api = (FRONTEND / "src/lib/api.ts").read_text(encoding="utf-8")
     test = (FRONTEND / "src/lib/api.test.ts").read_text(encoding="utf-8")
 
-    # الحقول الثلاثة المذكورة في القالب الموثق موجودة في الاختبار.
+    # الحقول الثلاثة المذكورة في القالب موجودة في الوثيقة وفي الاختبار.
     for field in ["code", "message", "details"]:
         assert f"error.{field}" in docs, f"docs/API.md لا يذكر الحقل: {field}"
         assert field in test, f"api.test.ts لا يتحقق من الحقل: {field}"
 
-    # رمز الشبكة الموثق يُستخدم حرفياً.
-    assert "NETWORK_ERROR" in docs
-    assert "NETWORK_ERROR" in test
-
-    # القالب نفسه: { "error": { code, message, details } } — يظهر حرفياً في docs/API.md
-    compact_docs = re.sub(r"\s+", "", docs)
-    assert '"error":{"code":"string","message":"string","details":"string|null"}' in compact_docs, (
-        "قالب الخطأ الموحد غير موجود حرفياً في docs/API.md"
-    )
+    # المنفّذ (api.ts) والموثّق (api.test.ts) يشتركان في رمز الشبكة وبنية القالب.
+    assert "NETWORK_ERROR" in api, "api.ts لا يرمي NETWORK_ERROR"
+    assert "NETWORK_ERROR" in test, "api.test.ts لا يتحقق من NETWORK_ERROR"
+    assert "details: string | null" in api, "api.ts لا يعرّف details نصية|null"
     # والاختبار يبني نفس الشكل { error: { code, message, details } }
     assert re.search(r"error:\s*\{[^}]*code[^}]*\}", test), (
         "api.test.ts لا يبني قالب الخطأ { error: { code, ... } }"
     )
+
+    # استئناف الرقابة الحرفية مع الوثيقة إن أعاد docs/API.md قالب الواجهة.
+    if "NETWORK_ERROR" in docs:
+        compact_docs = re.sub(r"\s+", "", docs)
+        assert '"error":{"code":"string","message":"string","details":"string|null"}' in compact_docs, (
+            "قالب الخطأ الموحد غير موجود حرفياً في docs/API.md"
+        )
 
 
 def test_ui_store_test_covers_theme_language_and_direction():

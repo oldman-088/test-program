@@ -1,5 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { Dashboard } from './Dashboard';
@@ -249,7 +248,6 @@ describe('Dashboard — error state', () => {
   });
 
   it('recovers after a retry when the backend comes back', async () => {
-    const user = userEvent.setup();
     let healthy = false;
     stubBackend({
       '/api/health': () =>
@@ -267,7 +265,7 @@ describe('Dashboard — error state', () => {
     expect(alert).toHaveTextContent('Backend is down');
 
     healthy = true;
-    await user.click(within(alert).getByRole('button', { name: 'Retry' }));
+    fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }));
 
     expect(await screen.findByText('v0.1.0')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('Backend is down')).not.toBeInTheDocument());
@@ -290,14 +288,13 @@ describe('Dashboard — error state', () => {
 
 describe('Dashboard — starting an investigation', () => {
   it('validates an empty query locally without calling the API', async () => {
-    const user = userEvent.setup();
     const fetchMock = stubBackend();
     renderDashboard();
 
     await screen.findByText('sqlite · 2ms');
     const callsBefore = fetchMock.mock.calls.length;
 
-    await user.click(screen.getByRole('button', { name: 'Start Investigation' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start Investigation' }));
 
     expect(await screen.findByText('Enter a search query first')).toBeInTheDocument();
     expect(screen.getByLabelText('Search query')).toHaveAttribute('aria-invalid', 'true');
@@ -305,7 +302,6 @@ describe('Dashboard — starting an investigation', () => {
   });
 
   it('POSTs the query and shows the queued confirmation', async () => {
-    const user = userEvent.setup();
     const fetchMock = stubBackend({
       '/api/investigations': () =>
         json(
@@ -322,8 +318,8 @@ describe('Dashboard — starting an investigation', () => {
     renderDashboard();
 
     await screen.findByText('sqlite · 2ms');
-    await user.type(screen.getByLabelText('Search query'), '  alice  ');
-    await user.click(screen.getByRole('button', { name: 'Start Investigation' }));
+    fireEvent.change(screen.getByLabelText('Search query'), { target: { value: '  alice  ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start Investigation' }));
 
     expect(await screen.findByRole('status')).toHaveTextContent('Investigation queued');
 
@@ -338,7 +334,6 @@ describe('Dashboard — starting an investigation', () => {
   });
 
   it('shows a visible error when POST /api/investigations fails', async () => {
-    const user = userEvent.setup();
     stubBackend({
       '/api/investigations': () =>
         json({ error: { code: 'VALIDATION_ERROR', message: 'Query rejected', details: null } }, 422),
@@ -346,8 +341,8 @@ describe('Dashboard — starting an investigation', () => {
     renderDashboard();
 
     await screen.findByText('sqlite · 2ms');
-    await user.type(screen.getByLabelText('Search query'), 'alice');
-    await user.click(screen.getByRole('button', { name: 'Start Investigation' }));
+    fireEvent.change(screen.getByLabelText('Search query'), { target: { value: 'alice' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start Investigation' }));
 
     expect(await screen.findByText('Query rejected')).toBeInTheDocument();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();

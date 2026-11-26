@@ -1,6 +1,5 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { createElement } from 'react';
-import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { TopBar } from '../components/layout/TopBar';
 import { useDirection } from '../hooks/useDirection';
@@ -65,15 +64,14 @@ describe('uiStore theme switching', () => {
     expect(useUiStore.getState().direction).toBe('ltr');
   });
 
-  it('switching the theme from the TopBar updates the store and aria-pressed', async () => {
-    const user = userEvent.setup();
+  it('switching the theme from the TopBar updates the store and aria-pressed', () => {
     render(createElement(TopBar));
 
     const themeButton = screen.getByRole('button', { name: 'Theme' });
     expect(themeButton).toHaveAttribute('aria-pressed', 'false');
     expect(themeButton).toHaveTextContent('Light');
 
-    await user.click(themeButton);
+    fireEvent.click(themeButton);
 
     expect(useUiStore.getState().theme).toBe('light');
     expect(screen.getByRole('button', { name: 'Theme' })).toHaveAttribute(
@@ -121,8 +119,7 @@ describe('uiStore language and page direction', () => {
     expect(document.documentElement).toHaveAttribute('lang', 'en');
   });
 
-  it('changing the language from the TopBar flips direction and translates its labels', async () => {
-    const user = userEvent.setup();
+  it('changing the language from the TopBar flips direction and translates its labels', () => {
     render(
       createElement(
         'div',
@@ -135,7 +132,7 @@ describe('uiStore language and page direction', () => {
     const languageSelect = screen.getByRole('combobox', { name: 'Language' });
     expect(languageSelect).toHaveValue('en');
 
-    await user.selectOptions(languageSelect, 'ar');
+    fireEvent.change(languageSelect, { target: { value: 'ar' } });
 
     expect(useUiStore.getState().locale).toBe('ar');
     expect(useUiStore.getState().direction).toBe('rtl');

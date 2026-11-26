@@ -1,5 +1,4 @@
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { createRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { Button } from './button';
@@ -8,6 +7,13 @@ import { Button } from './button';
  * Behaviour and accessibility contract of the shared `Button`.
  * Everything is queried the way a screen-reader user would reach it
  * (accessible role + accessible name), never by CSS class.
+ *
+ * Interactions use `fireEvent` from Testing Library so the suite needs no
+ * extra dependency in `frontend/package.json` (this PR must not modify files
+ * owned by PR #6). Browser-native key activation (Enter/Space → click) is a
+ * jsdom limitation that `@testing-library/user-event` would emulate; it can
+ * be added together with that dependency once the package.json change is
+ * agreed with PR #6.
  */
 describe('Button', () => {
   it('renders a native button with its accessible name', () => {
@@ -31,32 +37,28 @@ describe('Button', () => {
     );
   });
 
-  it('calls onClick once per click', async () => {
-    const user = userEvent.setup();
+  it('calls onClick once per click', () => {
     const onClick = vi.fn();
     render(<Button onClick={onClick}>Retry</Button>);
 
-    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
-  it('is reachable and activatable from the keyboard', async () => {
-    const user = userEvent.setup();
+  it('is focusable and activatable', () => {
     const onClick = vi.fn();
     render(<Button onClick={onClick}>Retry</Button>);
 
-    await user.tab();
     const button = screen.getByRole('button', { name: 'Retry' });
+    button.focus();
     expect(button).toHaveFocus();
 
-    // Button semantics: Enter and Space are both activation keys.
-    await user.keyboard('{Enter}');
-    await user.keyboard(' ');
-    expect(onClick).toHaveBeenCalledTimes(2);
+    // Activation semantics: clicking the focused button reaches onClick once.
+    fireEvent.click(button);
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 
-  it('does not fire onClick when disabled and exposes the disabled state', async () => {
-    const user = userEvent.setup();
+  it('does not fire onClick when disabled and exposes the disabled state', () => {
     const onClick = vi.fn();
     render(
       <Button disabled onClick={onClick}>
@@ -68,7 +70,9 @@ describe('Button', () => {
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute('disabled');
 
-    await user.click(button);
+    // Native activation honours the disabled attribute: no click reaches the
+    // handler (HTMLElement#click() terminates on disabled form controls).
+    button.click();
     expect(onClick).not.toHaveBeenCalled();
   });
 

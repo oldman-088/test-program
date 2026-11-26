@@ -101,7 +101,14 @@ jobs:
       - name: Run ops tests (includes docker build + up + volume persistence)
         env:
           NEXUS_RUN_DOCKER_INTEGRATION: "1"
-        run: python -m pytest tests/test_ops_containers.py -v -rs --tb=short
+        run: |
+          set +e
+          python -m pytest tests/test_ops_containers.py -v -rs --tb=short 2>&1 | tee pytest-ops.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          # ملخص العدد في annotation لأن سجلات runner غير مقروءة من بيئات العمل المعزولة.
+          tail -n 2 pytest-ops.log | tr '\n' ' ' | sed 's/^/::notice::ops-docker: /'
+          exit "$rc"
 
       - name: Triage leftovers on failure
         if: failure()

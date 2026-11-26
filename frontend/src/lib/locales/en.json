@@ -1,0 +1,84 @@
+{
+  "app": {
+    "name": "NEXUS OSINT",
+    "tagline": "AI Agent Team Manager"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "newInvestigation": "New Investigation",
+    "investigationHistory": "Investigation History",
+    "searchTools": "Search Tools",
+    "results": "Results",
+    "relationshipGraph": "Relationship Graph",
+    "timeline": "Timeline",
+    "reports": "Reports",
+    "integrations": "Integrations",
+    "settings": "Settings",
+    "about": "About"
+  },
+  "common": {
+    "loading": "Loading…",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "empty": "Nothing here yet",
+    "unavailable": "Unavailable",
+    "available": "Available",
+    "disabled": "Disabled",
+    "status": "Status",
+    "search": "Search",
+    "cancel": "Cancel",
+    "close": "Close"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "searchLabel": "Search query",
+    "searchPlaceholder": "Enter a name, username, email, phone, URL, domain or entity…",
+    "searchTypeLabel": "Search type",
+    "startInvestigation": "Start Investigation",
+    "recentInvestigations": "Recent investigations",
+    "searchStats": "Search statistics",
+    "integrations": "Available integrations",
+    "aiProvider": "AI provider status",
+    "taskProgress": "Task progress",
+    "latestReports": "Latest reports",
+    "backendStatus": "Backend status",
+    "databaseStatus": "Database status",
+    "noData": "No data available yet. Start an investigation to see results here.",
+    "backendUnavailable": "Backend is not reachable. Check that the API server is running and try again.",
+    "investigationStarted": "Investigation queued",
+    "queryRequired": "Enter a search query first"
+  },
+  "searchType": {
+    "name": "Name",
+    "username": "Username",
+    "email": "Email",
+    "phone": "Phone",
+    "url": "URL",
+    "domain": "Domain",
+    "entity": "Entity"
+  },
+  "stats": {
+    "totalInvestigations": "Total investigations",
+    "totalSearches": "Total searches",
+    "successRate": "Success rate",
+    "avgDuration": "Avg. duration"
+  },
+  "placeholder": {
+    "title": "Not implemented yet",
+    "description": "This page is not implemented in the current phase. It shows an empty state instead of fake data."
+  },
+  "settings": {
+    "language": "Language",
+    "theme": "Theme",
+    "dark": "Dark",
+    "light": "Light",
+    "english": "English",
+    "arabic": "العربية"
+  },
+  "a11y": {
+    "skipToContent": "Skip to content",
+    "mainNavigation": "Main navigation",
+    "language": "Language",
+    "theme": "Theme"
+  }
+}

@@ -1,0 +1,72 @@
+# =============================================================================
+# docker/Dockerfile.backend — صورة الخلفية (FastAPI + Uvicorn) لنظام NEXUS OSINT
+# البند 3 و 20 و 22 من المواصفة.
+#
+# البناء يجب أن يجري من جذر المستودع لأن سياق البناء (build context) يشمل backend/:
+#   docker build -f docker/Dockerfile.backend -t nexus-osint-backend:local .
+#   أو: docker compose build backend
+#
+# متغيّرات البيئة التي يحترمها هذا الملف (تُمرَّر عبر .env / env_file في compose):
+#   BACKEND_PORT      منفذ الاستماع داخل الحاوية — الافتراضي 8000
+#   APP_IMPORT        مسار كائن ASGI — الافتراضي backend.app.main:app
+#   API_PREFIX        بادئة مسارات REST في الخلفية — الافتراضي /api
+#   DATA_DIR          مجلد بيانات SQLite (يُمرَّر كـ volume دائم في compose)
+#   UVICORN_RELOAD    =1 يفعّل --reload (يُفعَّل في docker-compose.override.yml)
+#   HEALTHCHECK_PATH  مسار فحص الصحة — الافتراضي ${API_PREFIX}/health
+#                     اجعله فارغًا (HEALTHCHECK_PATH="") لتعطيل الفحص.
+#   UVICORN_EXTRA_ARGS نص إضافي يُمَرَّر لأمر uvicorn كما هو
+# =============================================================================
+
+FROM python:3.12-slim AS runtime
+
+LABEL org.opencontainers.image.title="NEXUS OSINT backend" \
+      org.opencontainers.image.description="FastAPI backend for NEXUS OSINT (AATM)" \
+      org.opencontainers.image.source="https://github.com/oldman-088/test-program"
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    LANG=C.UTF-8
+
+# قيم افتراضية قابلة للتجاوز من .env / compose.
+ENV BACKEND_PORT=8000 \
+    APP_IMPORT=backend.app.main:app \
+    API_PREFIX=/api \
+    DATA_DIR=/app/data \
+    UVICORN_RELOAD=0
+
+WORKDIR /app
+
+# 1) طبقة الاعتماديات أولًا: تغيير الكود وحده لا يُبطل cache هذه الطبقة.
+#    إن كان backend/requirements.txt مفقودًا سيفشل البناء برسالة واضحة — وهذا
+#    سلوك مقصود: الملف ملك مهمة النواة الخلفية (المهمة رقم 1).
+COPY backend/requirements.txt ./backend/requirements.txt
+RUN pip install --no-cache-dir -r backend/requirements.txt
+
+# 2) الشيفرة المصدرية للخلفية.
+COPY backend/ ./backend/
+
+# 3) مستخدم غير جذري + مجلد بيانات قابل للكتابة فقط.
+#    الكود يبقى مملوكًا للجذر (لا تكتب منه الحاوية)، ومجلد /app/data وحده لـ app:
+#    عند إنشاء volume باسم جديد تنسخ Docker ملكية/صلاحيات المجلد من الصورة، فيُكتب
+#    ملف SQLite في الـ volume بدل داخل الطبقات القابلة للكتابة.
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid 10001 --home-dir /app --shell /usr/sbin/nologin app \
+    && mkdir -p /app/data \
+    && chown app:app /app/data \
+    && chmod 0755 /app /app/data
+
+USER app:app
+
+EXPOSE 8000
+
+# الفحص يستخدم مكتبة python القياسية بدل curl، ومساره قابل للتهيئة.
+# ملاحظة: صيغة shell form مقصودة — صيغة exec form (JSON) لا تسمح بأكثر من سطر واحد.
+# تعطيل الفحص: HEALTHCHECK_PATH=""
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
+    CMD python -c "import os,sys,urllib.request; p=os.environ.get('HEALTHCHECK_PATH'); p=(os.environ.get('API_PREFIX') or '/api').rstrip('/')+'/health' if p is None else p; url='http://127.0.0.1:'+os.environ.get('BACKEND_PORT') or '8000'+p; sys.exit(0) if not p else sys.exit(0 if 200 <= urllib.request.urlopen(url, timeout=4).status < 400 else 1)"
+
+# المنفذ داخل الحاوية من متغير البيئة BACKEND_PORT (البند 3)، والاستماع على
+# 0.0.0.0 دائمًا ليكون قابلاً للنشر من compose. إعادة التحميل اختيارية.
+CMD ["sh", "-c", "set -eu; PORT=\"${BACKEND_PORT:-8000}\"; RELOAD=\"\"; if [ \"${UVICORN_RELOAD:-0}\" = \"1\" ]; then RELOAD=\"--reload --reload-dir /app/backend\"; fi; exec uvicorn \"${APP_IMPORT:-backend.app.main:app}\" --host 0.0.0.0 --port \"$PORT\" ${UVICORN_EXTRA_ARGS:-} $RELOAD"]

@@ -1,0 +1,22 @@
+# .pre-commit-config.yaml — NEXUS OSINT
+# جميع الخطافات موجهة إلى دليل backend/ فقط (ملفات بايثون وإعدادات الخلفية).
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        files: ^backend/
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+        files: ^backend/
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    #ruff version tracked via the pre-commit hook release
+    rev: v0.8.0
+    hooks:
+      - id: ruff-check
+        files: ^backend/
+        args: [--config=backend/pyproject.toml, backend]
+      - id: ruff-format
+        files: ^backend/
+        args: [--config=backend/pyproject.toml, backend]

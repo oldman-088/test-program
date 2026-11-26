@@ -49,3 +49,28 @@ jobs:
 
       - name: Verify .env remains after setup.ps1
         run: test -f .env && echo ".env exists after setup.ps1"
+
+  # Phase 2 backend core (AATM-49a40f0c-45e4-46b4-bb03-848170020d23):
+  # installs backend/requirements-dev.txt and runs ruff + pytest on backend/.
+  backend:
+    name: Backend (FastAPI core)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies (runtime + dev tools)
+        run: pip install -r backend/requirements-dev.txt
+
+      - name: Ruff lint (backend/)
+        working-directory: backend
+        run: ruff check .
+
+      - name: Run backend tests (pytest)
+        working-directory: backend
+        run: python -m pytest -v
+

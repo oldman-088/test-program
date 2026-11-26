@@ -78,8 +78,14 @@ Standard codes:
 
 ### 4.1 `GET /api/health` — liveness (public)
 
-Health endpoints are **deliberately public** (no authentication): orchestrators, load
-balancers and CI must reach them without credentials.
+**Intentionally public (no authentication) — documented decision.** Reference: task
+`AATM-49a40f0c-45e4-46b4-bb03-848170020d23` sets the acceptance criteria "`GET /api/health`
+returns 200" and "`GET /api/health/db` returns 200", i.e. both must answer 200 without any
+credentials; and the repository security rule (AGENTS.md, Q5) defines the exception clause
+"every new API route requires authentication through the project's existing auth dependency,
+**unless the task says the route is public**" — this task's 200-without-credentials criteria
+is that declaration. Orchestrators, load balancers and CI reach them without credentials.
+This decision is part of the contract and applies to both health routes; it is restated in §8.
 
 Request: no parameters.
 
@@ -213,10 +219,17 @@ Invalid query parameter (e.g. `GET /api/<route>?page=abc`) → `422`:
 
 ## 8. Authentication
 
-Currently **all routes are public**. When authentication is introduced, its scheme will be
-defined in this section and every protected route will be marked in §4; health endpoints
-stay public by design. Protected routes will return `401 unauthorized` (missing
-credentials) or `403 forbidden` (insufficient permissions) using the unified template.
+Currently **all routes are public** — there is no auth dependency in the codebase yet.
+`GET /api/health` and `GET /api/health/db` are **intentionally public without
+authentication**: task `AATM-49a40f0c-45e4-46b4-bb03-848170020d23` mandates a 200 response
+from both (its acceptance criteria), and AGENTS.md Q5 permits public routes "unless the
+task says the route is public". They will stay public in all future phases (liveness
+probes for orchestrators, load balancers and CI).
+
+When authentication is introduced, its scheme will be defined in this section and every
+protected route will be marked in §4. Protected routes will return `401 unauthorized`
+(missing credentials) or `403 forbidden` (insufficient permissions) using the unified
+template, and each will get a test that calls it without credentials.
 
 ## 9. Environment configuration
 

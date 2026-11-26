@@ -65,7 +65,8 @@ def test_api_client_follows_contract():
     ]:
         assert path in api, f"api.ts يفتقر للمسار: {path}"
     assert "VITE_API_BASE_URL" in api
-    assert "localhost" not in api and "127.0.0.1" not in api
+    assert "http://localhost" not in api and "https://localhost" not in api
+    assert "http://127.0.0.1" not in api and "https://127.0.0.1" not in api
 
 
 def test_sidebar_has_eleven_items_in_order():

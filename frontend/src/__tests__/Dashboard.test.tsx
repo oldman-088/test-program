@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { Dashboard } from '../pages/Dashboard';
@@ -20,6 +20,44 @@ describe('Dashboard', () => {
     expect(screen.getAllByText('Start Investigation').length).toBeGreaterThan(0);
     // Backend down → visible error, never fake data.
     await waitFor(() => expect(screen.getAllByText('down').length).toBeGreaterThan(0));
+  });
+
+  it('displays the unified API error code, message, and details when creation fails', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        return Response.json(
+          {
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Query was rejected',
+              details: 'The query is invalid.',
+            },
+          },
+          { status: 400 },
+        );
+      }
+      return Response.json({ items: [], total: 0 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByLabelText('Search query'), { target: { value: 'alice' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start Investigation' }));
+
+    expect(await screen.findByText('VALIDATION_ERROR')).toBeInTheDocument();
+    expect(await screen.findByText('Query was rejected')).toBeInTheDocument();
+    expect(await screen.findByText('The query is invalid.')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/investigations',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ query: 'alice', query_type: 'username' }),
+      }),
+    );
   });
 
   it('renders real health data when backend responds', async () => {

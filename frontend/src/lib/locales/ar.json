@@ -19,6 +19,8 @@
   "common": {
     "loading": "جارٍ التحميل…",
     "error": "حدث خطأ ما",
+    "errorCode": "رمز الخطأ",
+    "errorDetails": "التفاصيل",
     "retry": "إعادة المحاولة",
     "empty": "لا شيء هنا بعد",
     "unavailable": "غير متاح",

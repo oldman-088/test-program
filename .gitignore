@@ -1,11 +1,20 @@
-# الأسرار وملفات البيئة — لا تُعمَّد أبداً (AGENTS.md · القاعدة 4)
+# ── دمج اتحادي (union) بين أنماط المرحلة 1 وأنماط شريحة الخلفية ────────────────
+# لا يحذف أي طرف نمطاً للطرف الآخر: ``tests/test_phase1.py`` يشترط أنماط
+# GITIGNORE_REQUIRED أدناه، و``backend/tests/test_config.py`` يشترط أن ``backend/.env``
+# مستثنى (قاعدة الأسرار في AGENTS.md · القاعدة 4).
+
+# أصول البناء والاعتماديات
+node_modules/
+dist/
+
+# الأسرار وملفات البيئة — لا تُعمَّد أبداً (``.env.example`` يبقى متتبَّعاً)
 .env
 .env.*
 !**/.env.example
 backend/.env
 backend/.env.*
 
-# قواعد بيانات وأعمال محلية
+# قواعد بيانات محلية وملفات مؤقتة
 *.db
 *.db-journal
 *.sqlite
@@ -14,6 +23,8 @@ backend/var/
 .worktrees/
 
 # بايثون
+.venv/
+venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -21,5 +32,3 @@ __pycache__/
 .mypy_cache/
 .coverage
 htmlcov/
-.venv/
-venv/

@@ -1,0 +1,29 @@
+[project]
+name = "nexus-osint-backend"
+description = "إعدادات أدوات التطوير للواجهة الخلفية (NEXUS OSINT) — مرحلة 2"
+requires-python = ">=3.11"
+# لا توجد اعتمادات تشغيلية هنا؛ تُدرج الاعتمادات التشغيلية في backend/requirements.txt (مرحلة 2).
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+src = ["backend"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.format]
+quote-style = "single"
+indent-style = "space"
+skip-magic-trailing-comma = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = ["-v"]

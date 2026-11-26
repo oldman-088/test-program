@@ -1,0 +1,8 @@
+{
+  "visible": [
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "dbaeumer.vscode-eslint"
+  ],
+  "unwantedRecommendations": []
+}

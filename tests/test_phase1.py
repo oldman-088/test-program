@@ -168,6 +168,13 @@ def test_setup_ps1_correct_join_path():
     assert "-ChildPath ''" not in ps1, "setup.ps1 يستخدم -ChildPath مكررة"
 
 
+def test_setup_ps1_uses_python_c_flag():
+    """يجب أن يستخدم setup.ps1 الرمز -c (وليس -Command) عند استدعاء Python."""
+    ps1 = (ROOT / "scripts/setup.ps1").read_text(encoding="utf-8")
+    assert '-c $PyCode' in ps1, "setup.ps1 لا يستخدم -c لتمرير كود بايثون"
+    assert '& $PythonExe -Command $PyCode' not in ps1, "setup.ps1 يستدعي Python بـ -Command غير معروف لمفسّر Python"
+
+
 @pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh غير متاح في هذه البيئة")
 def test_setup_ps1_parses_with_pwsh():
     """إذا كان pwsh متاحًا، يجب أن يُحلل setup.ps1 بنجاح."""
@@ -180,7 +187,7 @@ def test_setup_ps1_parses_with_pwsh():
 
 
 # -------------------------------------------------
-# setup.sh syntax
+# setup.sh syntax and runtime
 # -------------------------------------------------
 def test_setup_sh_bash_syntax():
     """يجب أن يجتاز setup.sh فحص bash -n."""
@@ -190,3 +197,33 @@ def test_setup_sh_bash_syntax():
         text=True,
     )
     assert result.returncode == 0, f"setup.sh فشل في bash -n: {result.stderr}"
+
+
+def test_setup_sh_generates_env(tmp_path, monkeypatch):
+    """يجب أن يُولّد setup.sh ملف .env من .env.example عند التشغيل الفعلي."""
+    import os
+
+    # تشغيل في نسخة مؤقتة من الجذر لتجنب لمس الملفات الحقيقية
+    tmp_root = tmp_path / "repo"
+    for item in ROOT.iterdir():
+        if item.name == ".venv-test" or item.name == ".pytest_cache":
+            continue
+        if item.is_dir():
+            shutil.copytree(item, tmp_root / item.name)
+        else:
+            shutil.copy2(item, tmp_root / item.name)
+
+    env_file = tmp_root / ".env"
+    assert not env_file.exists(), ".env لا يجب أن يوجد قبل التشغيل"
+
+    result = subprocess.run(
+        ["bash", str(tmp_root / "scripts/setup.sh")],
+        capture_output=True,
+        text=True,
+        cwd=str(tmp_root),
+    )
+    assert result.returncode == 0, f"setup.sh فشل عند التشغيل: {result.stderr}"
+    assert env_file.exists(), "لم يُولّد ملف .env عند تشغيل setup.sh"
+    example = (tmp_root / ".env.example").read_text(encoding="utf-8")
+    generated = env_file.read_text(encoding="utf-8")
+    assert generated == example, "محتوى .env المُولّد غير متطابق مع .env.example"

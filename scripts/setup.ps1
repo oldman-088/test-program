@@ -99,7 +99,7 @@ else:
     print("تم توليد .env من .env.example (لا تُلزم أبدًا — مستثنى من Git).")
 '@
 
-& $PythonExe -Command $PyCode "$RootDir"
+& $PythonExe -c $PyCode "$RootDir"
 
 Write-Host "=== اكتمل الإعداد بنجاح (المرحلة 1) ==="
 Write-Host "تنبيه: المراحل 2 إلى 7 لم تُنفذ بعد."

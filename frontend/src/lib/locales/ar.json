@@ -1,0 +1,86 @@
+{
+  "app": {
+    "name": "NEXUS OSINT",
+    "tagline": "مدير فريق الوكلاء الاصطناعيين"
+  },
+  "nav": {
+    "dashboard": "لوحة القيادة",
+    "newInvestigation": "تحقيق جديد",
+    "investigationHistory": "سجل التحقيقات",
+    "searchTools": "أدوات البحث",
+    "results": "النتائج",
+    "relationshipGraph": "رسم العلاقات",
+    "timeline": "الخط الزمني",
+    "reports": "التقارير",
+    "integrations": "التكاملات",
+    "settings": "الإعدادات",
+    "about": "حول"
+  },
+  "common": {
+    "loading": "جارٍ التحميل…",
+    "error": "حدث خطأ ما",
+    "errorCode": "رمز الخطأ",
+    "errorDetails": "التفاصيل",
+    "retry": "إعادة المحاولة",
+    "empty": "لا شيء هنا بعد",
+    "unavailable": "غير متاح",
+    "available": "متاح",
+    "disabled": "معطّل",
+    "status": "الحالة",
+    "search": "بحث",
+    "cancel": "إلغاء",
+    "close": "إغلاق"
+  },
+  "dashboard": {
+    "title": "لوحة القيادة",
+    "searchLabel": "استعلام البحث",
+    "searchPlaceholder": "أدخل اسماً أو مستخدماً أو بريداً أو هاتفاً أو رابطاً أو نطاقاً أو جهة…",
+    "searchTypeLabel": "نوع البحث",
+    "startInvestigation": "بدء التحقيق",
+    "recentInvestigations": "التحقيقات الأخيرة",
+    "searchStats": "إحصاءات البحث",
+    "integrations": "التكاملات المتاحة",
+    "aiProvider": "حالة مزود الذكاء الاصطناعي",
+    "taskProgress": "تقدم المهام",
+    "latestReports": "آخر التقارير",
+    "backendStatus": "حالة الخلفية",
+    "databaseStatus": "حالة قاعدة البيانات",
+    "noData": "لا توجد بيانات متاحة بعد. ابدأ تحقيقاً لعرض النتائج هنا.",
+    "backendUnavailable": "الخلفية غير قابلة للوصول. تحقق من تشغيل خادم الواجهة الخلفية وحاول مجدداً.",
+    "investigationStarted": "تم إدراج التحقيق في قائمة الانتظار",
+    "queryRequired": "أدخل استعلام بحث أولاً"
+  },
+  "searchType": {
+    "name": "اسم",
+    "username": "مستخدم",
+    "email": "بريد",
+    "phone": "هاتف",
+    "url": "رابط",
+    "domain": "نطاق",
+    "entity": "جهة"
+  },
+  "stats": {
+    "totalInvestigations": "إجمالي التحقيقات",
+    "totalSearches": "إجمالي عمليات البحث",
+    "successRate": "نسبة النجاح",
+    "avgDuration": "متوسط المدة"
+  },
+  "placeholder": {
+    "title": "غير منفذة بعد",
+    "description": "هذه الصفحة غير منفذة في المرحلة الحالية. تعرض حالة فارغة بدلاً من بيانات وهمية."
+  },
+  "settings": {
+    "language": "اللغة",
+    "theme": "السمة",
+    "dark": "داكنة",
+    "light": "فاتحة",
+    "english": "English",
+    "arabic": "العربية"
+  },
+  "a11y": {
+    "skipToContent": "تخطَّ إلى المحتوى",
+    "mainNavigation": "التنقل الرئيسي",
+    "language": "اللغة",
+    "theme": "السمة"
+  }
+}

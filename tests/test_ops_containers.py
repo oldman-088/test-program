@@ -779,8 +779,8 @@ def test_environment_documents_the_post_merge_ci_evidence():
     `1464905` وملخص pytest الفعلي له، ويسجّل فشل التشغيل الأول على `aa19a21` والسبب.
     """
     text = read("docs/ENVIRONMENT.md")
-    assert "1464905" in text, "يجب أن يوثّق الرأس الذي قِيست عليه نتيجة CI الحالية"
-    assert "53 passed, 1 skipped" in text, "يجب نقل ملخص pytest الفعلي من وظيفة ops-docker"
+    assert "850c8d0" in text, "يجب أن يوثّق الرأس الذي قِيست عليه نتيجة CI الحالية"
+    assert "54 passed, 1 skipped" in text, "يجب نقل ملخص pytest الفعلي من وظيفة ops-docker"
     assert "aa19a21" in text and "NameError" in text, (
         "الفشل الأول على رأس المزامنة وسببه جزء من الدليل: لا تُحذف منه إلا بتوثيق بديل"
     )

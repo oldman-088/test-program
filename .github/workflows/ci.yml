@@ -150,7 +150,7 @@ jobs:
           tail -n 2 pytest-ops.log | tr '\n' ' ' | sed 's/^/::notice::ops-docker: /'
           # أزمنة أبطأ الاختبارات: دليل قابل للتدقيق على أن اختبارات التكامل (build/up/down)
           # نُفِّذت فعلًا ولم تُتخطَّ بصمت حيث Docker متاح.
-          grep -A 7 -E 'slowest 1[0-9] durations|durations: min' pytest-ops.log \
+          grep -A 8 -E 'slowest [0-9]+ durations' pytest-ops.log \
             | head -n 9 | tr '\n' '|' | sed 's/^/::notice::ops-docker durations: /' || true
           if [ "$rc" != "0" ]; then
             grep -E '^(FAILED|ERROR)' pytest-ops.log | head -n 15 | while IFS= read -r line; do

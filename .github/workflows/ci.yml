@@ -23,7 +23,18 @@ jobs:
         run: pip install pytest pyyaml crossplane dockerfile-parse
 
       - name: Run phase 1 tests
-        run: python -m pytest tests/ -v
+        run: |
+          set +e
+          python -m pytest tests/ -v -rs --tb=short 2>&1 | tee pytest-phase1.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" != "0" ]; then
+            # أسماء الاختبارات الفاشلة في annotations: سجلات runner لا تُقرأ من بيئة معزولة.
+            grep -E '^(FAILED|ERROR)' pytest-phase1.log | head -n 15 | while IFS= read -r line; do
+              printf '::error::%s\n' "$line"
+            done
+          fi
+          exit "$rc"
 
       - name: Validate setup.sh bash syntax
         run: bash -n scripts/setup.sh
@@ -137,6 +148,11 @@ jobs:
           set -e
           # ملخص العدد في annotation لأن سجلات runner غير مقروءة من بيئات العمل المعزولة.
           tail -n 2 pytest-ops.log | tr '\n' ' ' | sed 's/^/::notice::ops-docker: /'
+          if [ "$rc" != "0" ]; then
+            grep -E '^(FAILED|ERROR)' pytest-ops.log | head -n 15 | while IFS= read -r line; do
+              printf '::error::%s\n' "$line"
+            done
+          fi
           exit "$rc"
 
       - name: Triage leftovers on failure

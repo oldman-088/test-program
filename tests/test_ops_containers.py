@@ -19,7 +19,6 @@ import shutil
 import socket
 import subprocess
 import sys
-import textwrap
 from pathlib import Path
 
 import pytest
@@ -796,6 +795,17 @@ def test_environment_documents_sqlite_volume_and_ports():
 # -------------------------------------------------
 # التحقق الفعلي عبر Compose (يتطلب Docker): خلفية المستودع الحقيقية + واجهة بديلة
 # -------------------------------------------------
+FRONTEND_FIXTURE_BUILD = '''
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+mkdirSync("dist", { recursive: true });
+writeFileSync("dist/index.html", readFileSync("index.html", "utf8").replace(/__MARKER__/g, "built-by-dockerfile-frontend"));
+for (const asset of ["app.js", "app.css"]) {
+  writeFileSync("dist/" + asset, readFileSync(asset, "utf8"));
+}
+console.log("dist built");
+'''
+
+
 def _compose_sandbox(tmp_path: Path) -> Path:
     """نسخة من جذر البناء تستخدم **الخلفية الحقيقية من المستودع** وبديلًا مؤقتًا للواجهة.
 
@@ -887,6 +897,37 @@ def _http_request(method: str, url: str, attempts: int = 30, extra: list[str] | 
 
 def _http_get(url: str) -> str:
     return _http_request("GET", url)
+
+
+def test_compose_sandbox_builder_works_without_docker(tmp_path):
+    """مُنشئ نموذج التكامل يعمل بلا Docker — يمنع أن يظهر NameError/خطأ مسار في CI فقط.
+
+    درسه من واقع أمرٍ وقع: استبدال المُنشئ أزال ثابته، ففشلت ثلاثة اختبارات في CI
+    ونجحت محليًا (كانت تُتخطّى لغياب Docker). لذلك يُستدعى المُنشئ هنا بلا Docker،
+    وتُنفَّذ `build.mjs` بفعلها إن كان node متاحًا.
+    """
+    work = _compose_sandbox(tmp_path)
+    for rel in (
+        "docker-compose.yml", "docker-compose.override.yml", ".dockerignore", ".env.example", ".env",
+        "docker/Dockerfile.backend", "docker/Dockerfile.frontend", "docker/nginx.conf",
+        "backend/requirements.txt", "backend/app/main.py", "frontend/package.json",
+        "frontend/index.html", "frontend/app.js", "frontend/app.css", "frontend/build.mjs",
+        "frontend/dev-server.mjs",
+    ):
+        assert (work / rel).is_file(), f"نموذج التكامل ينقصه {rel}"
+    pkg = json.loads((work / "frontend" / "package.json").read_text(encoding="utf-8"))
+    assert pkg["scripts"] == {"build": "node build.mjs", "dev": "node dev-server.mjs"}, pkg["scripts"]
+    # الخلفية في النموذج هي خلية المستودع نفسها، لا ملف بديل.
+    assert "create_app" in (work / "backend" / "app" / "main.py").read_text(encoding="utf-8"), (
+        "يجب أن ينسخ النموذج backend/ الحقيقية بعد دمجها"
+    )
+    assert not list((work / "backend").rglob(".env")), "لا يجوز أن ينجرف .env المحلي إلى سياق البناء"
+    if shutil.which("node") is None:
+        pytest.skip("node غير متاح في هذه البيئة")
+    built = subprocess.run(["node", "build.mjs"], cwd=str(work / "frontend"), capture_output=True, text=True)
+    assert built.returncode == 0, f"فشل نموذج البناء: {built.stderr}"
+    html = (work / "frontend" / "dist" / "index.html").read_text(encoding="utf-8")
+    assert "built-by-dockerfile-frontend" in html, html[:200]
 
 
 @needs_docker
@@ -982,8 +1023,10 @@ def test_docker_compose_up_serves_frontend_proxies_api_and_persists_sqlite(tmp_p
         assert migrated.returncode == 0, f"alembic upgrade head فشل:\n{migrated.stdout[-1500:]}{migrated.stderr[-1500:]}"
 
         # 6) كتابة سجل حقيقي ثم إعادة إنشاء الحاويات: البيانات تبقى في الـ volume.
-        body = ('{"task_id":"aatm-c740feee-a5ee-4519","employee_id":"worker-5",'
-                '"branch":"arena/82fdba0c-test-program","worktree":"/app/backend"}')
+        # task_id فريد لكل تشغيل: اسم الـ volume ثابت (`nexus-osint-data`) وقد يبقى من
+        # تشغيل سابق، و POST على نفس المهمة يعيد 409 (لا 201) حسب عقد الجلسات.
+        body = ('{"task_id":"aatm-c740feee-%08d","employee_id":"worker-5",'
+                '"branch":"arena/82fdba0c-test-program","worktree":"/app/backend"}' % os.getpid())
         created = curl("POST", f"{fe}/api/v1/sessions", "-H", f"X-API-Key: {api_key}",
                        "-H", "content-type: application/json", "-d", body)
         assert '"task_id"' in created, f"لم يُنشأ السجل عبر nginx:\n{created[:400]}\n{dump_state('create')}"

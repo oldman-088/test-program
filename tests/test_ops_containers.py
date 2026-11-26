@@ -271,6 +271,71 @@ def test_dockerfiles_are_syntactically_parseable(rel, expected_parents):
     assert all(v.strip() for v in run_values), "سطر RUN فارغ — استمرارات الخط الساطع مكسورة"
 
 
+def _healthcheck_shell_cmd(rel: str) -> str:
+    """يستخرج أمر HEALTHCHECK (shell form) كما سيُنفَّذ داخل الحاوية."""
+    for line in read(rel).splitlines():
+        stripped = line.strip()
+        if stripped.startswith("CMD ") and "urllib" in stripped:
+            return stripped[len("CMD "):]
+    return ""
+
+
+def test_backend_healthcheck_command_actually_works(tmp_path):
+    """أمر HEALTHCHECK في Dockerfile.backend يُنفَّذ فعليًا مقابل خادم صلاحي.
+
+    يضمن أن الفحص ينجح على ${API_PREFIX}/health، ويفشل على 404 (لا نجاح زائف)،
+    ويعطّل نفسه عند HEALTHCHECK_PATH=""، ويحترم BACKEND_PORT.
+    """
+    cmd = _healthcheck_shell_cmd("docker/Dockerfile.backend")
+    assert cmd, "لم يُعثر على أمر HEALTHCHECK في Dockerfile.backend"
+
+    import http.server
+    import threading
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        allowed = {"/api/health"}
+
+        def do_GET(self):  # noqa: N802
+            if self.path in Handler.allowed:
+                payload = b'{"status":"ok"}'
+                self.send_response(200)
+            else:
+                payload = b'{"detail":"not found"}'
+                self.send_response(404)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *args):  # صمت في مخرجات الاختبار
+            return
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        def run(**env):
+            child_env = {k: v for k, v in os.environ.items()}
+            child_env.pop("HEALTHCHECK_PATH", None)
+            child_env.pop("API_PREFIX", None)
+            child_env["BACKEND_PORT"] = str(port)
+            child_env.update({k: str(v) for k, v in env.items()})
+            return subprocess.run(["sh", "-c", cmd], env=child_env, capture_output=True, text=True, timeout=30)
+
+        assert run(API_PREFIX="/api").returncode == 0, "الفحص يجب أن ينجح على /api/health"
+        Handler.allowed = {"/v1/health"}
+        assert run(API_PREFIX="/v1").returncode == 0, "الفحص يجب أن يتبع API_PREFIX"
+        assert run(API_PREFIX="/api").returncode != 0, "الفحص يجب أن يفشل عند 404 لا أن ينجح زائفًا"
+        Handler.allowed = set()
+        assert run(API_PREFIX="/api", HEALTHCHECK_PATH="").returncode == 0, (
+            'HEALTHCHECK_PATH="" يجب أن يعطّل الفحص'
+        )
+        assert run(HEALTHCHECK_PATH="/api/health", **{"API_PREFIX": "/ignored"}).returncode != 0
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 # -------------------------------------------------
 # docker-compose.yml
 # -------------------------------------------------

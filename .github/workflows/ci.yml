@@ -101,26 +101,7 @@ jobs:
       - name: Run ops tests (includes docker build + up + volume persistence)
         env:
           NEXUS_RUN_DOCKER_INTEGRATION: "1"
-        run: |
-          set +e
-          python -m pytest tests/test_ops_containers.py -v -rs --tb=short 2>&1 | tee pytest-ops.log
-          rc=${PIPESTATUS[0]}
-          set -e
-          if [ "$rc" -ne 0 ]; then
-            # تشخيص مؤقت: إرسال مقتطف من السجل كـ annotation (سجلات runner غير مقروءة من هنا).
-            python - <<'PYDIAG'
-          import pathlib, re
-          text = pathlib.Path("pytest-ops.log").read_text(encoding="utf-8", errors="replace")
-          def clean(chunk, limit):
-              chunk = re.sub(r"[^\x20-\x7e\n]", ".", chunk)
-              return chunk.replace("%", "%25").replace(":", "%3A").replace("\n", "%0A")[:limit]
-          failed = "\n".join(l for l in text.splitlines() if l.startswith(("FAILED", "ERROR")))
-          trace = text[text.index("= FAILURES"):] if "= FAILURES" in text else text
-          print("::error::failed=" + clean(failed, 800))
-          print("::error::trace=" + clean(trace, 1600))
-          PYDIAG
-          fi
-          exit "$rc"
+        run: python -m pytest tests/test_ops_containers.py -v -rs --tb=short
 
       - name: Triage leftovers on failure
         if: failure()

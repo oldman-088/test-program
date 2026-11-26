@@ -65,7 +65,7 @@ EXPOSE 8000
 # ملاحظة: صيغة shell form مقصودة — صيغة exec form (JSON) لا تسمح بأكثر من سطر واحد.
 # تعطيل الفحص: HEALTHCHECK_PATH=""
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
-    CMD python -c "import os,sys,urllib.request; p=os.environ.get('HEALTHCHECK_PATH'); p=(os.environ.get('API_PREFIX') or '/api').rstrip('/')+'/health' if p is None else p; url='http://127.0.0.1:'+os.environ.get('BACKEND_PORT') or '8000'+p; sys.exit(0) if not p else sys.exit(0 if 200 <= urllib.request.urlopen(url, timeout=4).status < 400 else 1)"
+    CMD python -c "import os,sys,urllib.request; p=os.environ.get('HEALTHCHECK_PATH'); p=(os.environ.get('API_PREFIX') or '/api').rstrip('/')+'/health' if p is None else p; url='http://127.0.0.1:'+(os.environ.get('BACKEND_PORT') or '8000')+p; sys.exit(0) if not p else sys.exit(0 if 200 <= urllib.request.urlopen(url, timeout=4).status < 400 else 1)"
 
 # المنفذ داخل الحاوية من متغير البيئة BACKEND_PORT (البند 3)، والاستماع على
 # 0.0.0.0 دائمًا ليكون قابلاً للنشر من compose. إعادة التحميل اختيارية.

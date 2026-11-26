@@ -172,6 +172,17 @@ $ docker compose down -v                                # هنا فقط تُمس
 مجهول، وتقرأ `.env` بتحليل سطور آمن (لا `source` ولا `Invoke-Expression`) لأن قيمًا مثل
 `APP_NAME=NEXUS OSINT` تُفسَّر كأمر عند `source`.
 
+### ما كشفته أول تشغيل فعلي لوظيفة CI `ops-docker`
+سجّل أول تشغيل حقيقي (runner فيه Docker) ما يلي — وهو بالضبط سبب إضافة هذه الوظيفة:
+
+| ما تحقق | النتيجة |
+|---|---|
+| `docker compose config --quiet` (الملف الأساسي + دمج override) في جذر المستودع | نجح، رغم غياب `backend/` و `frontend/` |
+| بناء `docker/Dockerfile.backend` و `docker/Dockerfile.frontend` | نجح البناءان (نموذج backend/frontend مؤقت في الدليل المؤقت للاختبار فقط) |
+| حالة حاوية الواجهة بعد `up` | `healthy` — أي أن `docker/nginx.conf` صالح تشغيليًا و`/healthz` يعمل |
+| حالة حاوية الخلفية | `unhealthy` في أول تشغيل: خطأ أولوية في بناء رابط الفحص (`'…:'+X or '8000'+p` بدل `'…:'+(X or '8000')+p`) فصار الرابط بلا مسار → 404 |
+| ما فُعل بعد ذلك | أُصلح السطر، وأُضيف `test_backend_healthcheck_command_actually_works` يقرأ أمر `HEALTHCHECK` من ملف Dockerfile نفسه وينفّذه مقابل خادم صلاحي: ينجح على `${API_PREFIX}/health`، ويفشل على 404 (لا نجاح زائف)، ويحيّد نفسه عند `HEALTHCHECK_PATH=""` |
+
 ## قرارات تصميم يجب معرفتها
 - **منفذ الخلفية**: `BACKEND_PORT=8000` مثبّت داخل شبكة Compose ليطابق `backend:8000`
   في `nginx.conf`؛ ما يتغيّر على المضيف هو `BACKEND_HOST_PORT` (من `.env`).

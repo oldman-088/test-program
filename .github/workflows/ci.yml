@@ -107,10 +107,23 @@ jobs:
           rc=$?
           set -e
           if [ "$rc" -ne 0 ]; then
-            cp pytest-ops.log ci-diag-pytest.log
-            git add -f ci-diag-pytest.log
-            git -c user.name=ci-diagnostic -c user.email=ci@local commit -q -m "ci diagnostic: pytest output"
-            git -c http.extraheader= -c credential.helper= push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:"$(git rev-parse --abbrev-ref HEAD)" || echo "diagnostic push skipped"
+            # تشخيص مؤقت: نشر ناتج pytest كتعليق على الطلب (لا تُقرأ سجلات runner هنا).
+            {
+              echo "### ops-docker pytest (rc=$rc)"
+              echo '```'
+              tail -c 5000 pytest-ops.log
+              echo ''
+              echo '```'
+            } > diag.md
+            PR=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$GITHUB_REF_NAME" --state open --json number --jq '.[0].number' || true)
+            if [ -n "$PR" ]; then
+              gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file diag.md || echo "comment failed"
+            else
+              echo "no PR found for $GITHUB_REF_NAME"
+            fi
+            # وسم التشخيص عبر annotations (يُقرأ عبر API حتى لو مُنع نشر التعليق)
+            tail -c 1800 pytest-ops.log | awk '{printf "%s%%0A", $0}' | sed 's/%%0A/%0A/g' > diag-oneline.txt
+            printf '::error::ops pytest tail: %s\n' "$(cat diag-oneline.txt)"
             tail -40 pytest-ops.log
           fi
           exit "$rc"

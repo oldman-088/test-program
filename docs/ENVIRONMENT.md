@@ -121,9 +121,11 @@ docker-compose -> MISSING   nginx -> MISSING   pwsh -> MISSING   shellcheck -> M
    - `docker/Dockerfile.backend` و `docker/Dockerfile.frontend` بحزمة `dockerfile-parse`:
      صور الأساس المقروءة `[python:3.12-slim]` و `[node:20-alpine, nginx:alpine, node:20-alpine]`
      مع سلاسل ENV/LABEL/CMD مقروءة — أي أن استمرارات الخط الساطع واقتباسات JSON صالحة.
-4. **اختبارات آلية** في `tests/test_ops_containers.py`: الناتج الفعلي في هذه البيئة
-   `61 passed, 7 skipped` (التخطّي لغياب `pwsh` و Docker، ولاختبار تشغيل uvicorn حين لا تكون
-   مثبتة؛ وببيئة فيها uvicorn تصبح `48 passed, 5 skipped`)، و 5 اختبارات
+4. **اختبارات آلية**: `python -m pytest tests/ -q` (تشمل `tests/test_ops_containers.py`)
+   في هذه البيئة ⇒ `63 passed, 7 skipped` (التخطّي لغياب `pwsh` و Docker، ولاختبار
+   تشغيل uvicorn حين لا تكون مثبتة؛ وببيئة فيها uvicorn + fastapi ⇒
+   `64 passed, 6 skipped` — أي أن اختبار إقلاع `dev.sh` بالخلفية الحقيقية يُنفَّذ فعلًا)،
+   و 5 اختبارات
    مُخصصة لبيئة فيها Docker (تحليل `docker compose config`، ثم بناء الصور وتشغيلها) —
    **نجحت جميعها في CI على رأس PR #11 السابق** كما هو موثّق أدناه تحت «نتيجة البناء
    الفعلية في بيئة فيها Docker»؛ بعد دمج `backend/` الحقيقي يعمل اختبار التكامل
@@ -148,18 +150,22 @@ $ docker compose down -v                                # هنا فقط تُمس
 ```
 
 والبديل بلا حاويات هو `scripts/dev.sh` (أو `scripts/dev.ps1` على Windows) كما في القسم
-التالي. ملاحظة: نجاح `docker compose build` و `docker compose up` مشروط بدمج مخرجات
-المهام 1–3 (انظر الجدول أدناه)، لا بملفات هذه المهمة وحدها.
+التالي. ملاحظة: هذه الأوامر نُفِّذت حرفيًا في وظيفة CI `ops-docker` على رأس هذا الفرع
+(نتيجتها موثّقة أدناه)؛ ونجاح `docker compose build` للواجهة يبقى مشروطًا بدمج
+`frontend/` (انظر الجدول أدناه)، لا بملفات هذه المهمة وحدها.
 
 ### ما لم يكتمل ولماذا (حالة صريحة)
 - **بناء وتشغيل الصورتين (`docker compose up`) غير متحقق محليًا** — لا Docker في البيئة.
   التحقق منه مُوكَل إلى وظيفة CI `ops-docker` المضافة في `.github/workflows/ci.yml`،
   التي تشغّل مجموعتي على `ubuntu-latest` حيث Docker و Docker Compose متوفران:
-  `docker compose config` لفحص الصيغة، ثم `pytest -m integration` بـ `NEXUS_RUN_DOCKER_INTEGRATION=1`
-  للبناء والتشغيل الفعليين: تبني
-  الصورتين، ترفع Stack، تتحقق أن الواجهة تُخدم على منفذ منشور، أن `/api` يصل إلى
-  الخلفية، وأن صفّ SQLite المكتوب في الـ volume يبقى بعد `docker compose down` ثم
-  `up`. الاختبارات: `test_docker_compose_up_serves_frontend_proxies_api_and_persists_sqlite`.
+  `docker compose config` لفحص الصيغة، ثم المجموعة كاملة بـ `NEXUS_RUN_DOCKER_INTEGRATION=1`
+  للبناء والتشغيل الفعليين: تبني الصورتين، ترفع Stack، تتحقق أن الواجهة تُخدم على منفذ
+  منشور، أن `/api/v1` يصل إلى الخلفية الحقيقية (`/health` و `/health/ready`)، أن
+  `POST /api/v1/sessions` يعيد `401` بلا `X-API-Key` و`201` به، وأن صف الجلسة المكتوب في
+  الـ volume يبقى بعد `docker compose down` ثم `up`. الاختبارات:
+  `test_docker_compose_config_is_valid`،
+  `test_docker_compose_up_serves_frontend_proxies_api_and_persists_sqlite`،
+  `test_docker_compose_override_switches_to_dev_target`.
 - **حالة الصور مقابل `main` بعد دمج شريحة الخلفية**: أُنجزت مزامنة هذا الفرع مع
   `main@450ef76` أثناء مراجعة PR #11، فصارت `backend/` حقيقية في المستودع
   (حزمة `app` + `requirements.txt` + Alembic + `docs/API.md`) وتُبنى صورة الخلفية
@@ -198,16 +204,25 @@ $ docker compose down -v                                # هنا فقط تُمس
 
 ### نتيجة البناء الفعلية في بيئة فيها Docker (وظيفة CI `ops-docker`)
 Docker غير متوفر في بيئة العمل المحلية، لذلك نُفِّذ البناء والتشغيل في CI على
-`ubuntu-latest` (والوظيفة خضراء على هذا الطلب). الناتج الحرفي من تعليمة `::notice::`
-التي تنشر ملخص pytest في آخر خطوة:
+`ubuntu-latest`. الناتج الحرفي من تعليمة `::notice::` على رأس هذا الفرع بعد دمج
+`backend/` (`1464905`)، وثلاث الوظائف خضراء (`test`، `backend-tests`، `ops-docker`):
 
 ```console
-ops-docker: 50 passed, 1 skipped in 30.15s
-SKIPPED [1] tests/test_ops_containers.py:535: uvicorn غير مثبت في بيئة الاختبار
+ops-docker: SKIPPED [1] tests/test_ops_containers.py:608: uvicorn غير مثبت في بيئة الاختبار
+============ 53 passed, 1 skipped in 38.41s ============
 ```
 
-هذه النتائج مأخوذة من رأس PR #11 السابق (`fcc9940`)، حيث كانت `backend/` غائبة عن
-الفرع؛ بعد المزامنة مع `main` تُقاس الصور مرة أخرى على الرأس الجديد بنفس الوظيفة.
+وقبلها، أول تشغيل على رأس المزامنة (`aa19a21`) **فشل** بثلاث حالات في `ops-docker`
+وحالة في `test`، والسبب واحد: إعادة كتابة مُنشئ نموذج التكامل حذفت ثابته
+`FRONTEND_FIXTURE_BUILD` ⇒ `NameError` فوري. لم يُكشف محليًا لأن الاختبارات الثلاثة
+كانت تُتخطّى لغياب Docker؛ أُصلح في `1464905`، وأُضيف
+`test_compose_sandbox_builder_works_without_docker` الذي يستدعي المُنشئ و`node build.mjs`
+بلا Docker كي لا يتكرر نمط «يفشل في CI ويعبر محليًا»، وصارت وظائف CI تبثّ أسماء
+الاختبارات الفاشلة في `::error::` لأن سجلات runner لا تُقرأ من بيئة معزولة.
+
+النقاط التالية قِيست أول مرة على رأس PR السابق (`fcc9940`) حيث كانت صورة الخلفية تُقاس
+مقابل نموذج مؤقت؛ بعد دمج `backend/` أعيد قياسها على `1464905` مقابل التطبيق الحقيقي
+(السطر الأخير من كل نقطة يوضح أيهما).
 
 المُثبَت آليًا هناك (وليس بالادعاء):
 - `docker compose config --quiet` نجح على `docker-compose.yml` وعلى دمجه مع
@@ -228,6 +243,11 @@ SKIPPED [1] tests/test_ops_containers.py:535: uvicorn غير مثبت في بي�
   على نفس المنفذ المنشور.
 - اختبارا `scripts/dev.ps1` مع `pwsh` الحقيقي: تحليل نحو dry-run نجحا.
 - الاختبار `test_backend_healthcheck_command_actually_works` ينفّذ أمر `HEALTHCHECK` الحرفي من الـ Dockerfile مقابل خادم صلاحي (محليًا وفي CI).
+- على `1464905`: بناء صورة الخلفية يتم من `backend/` المستودع نفسها (لا نموذج):
+  `pip install -r requirements.txt` + `uvicorn>=0.30`، ثم `up -d --wait` بحاويتين
+  `healthy`، و `GET /api/v1/health` و `/api/v1/health/ready` عبر nginx، و `401` بلا
+  `X-API-Key` و `201` به، و `alembic upgrade head` داخل الحاوية، وبقاء صف الجلسة بعد
+  `down` ثم `up` في `nexus-osint-data` (`/app/data/aatm.db`)، وتشغيل الحاوية بـ uid غير جذري.
 
 الوظيفة تنشر هذا الملخص كـ annotation لأن سجلات runner لا تُقرأ من بيئات العمل المعزولة
 هنا (المضيف الخارجي الوحيد المسموح هو `api.github.com`).

@@ -772,6 +772,23 @@ def test_environment_documents_actual_build_result():
     assert re.search(r"(غير مثبت|غير متوفر|command not found)", body), "يجب التصريح بحالة Docker في البيئة"
 
 
+def test_environment_documents_the_post_merge_ci_evidence():
+    """التوثيق يجب أن يحمل رقم تشغيل CI بعد المزامنة، لا رقم الرأس السابق فقط.
+
+    يمنع أن يُقرأ القسم على أنه إثبات لم يعد ينطبق على الرأس الحالي: يذكر الرأس
+    `1464905` وملخص pytest الفعلي له، ويسجّل فشل التشغيل الأول على `aa19a21` والسبب.
+    """
+    text = read("docs/ENVIRONMENT.md")
+    assert "1464905" in text, "يجب أن يوثّق الرأس الذي قِيست عليه نتيجة CI الحالية"
+    assert "53 passed, 1 skipped" in text, "يجب نقل ملخص pytest الفعلي من وظيفة ops-docker"
+    assert "aa19a21" in text and "NameError" in text, (
+        "الفشل الأول على رأس المزامنة وسببه جزء من الدليل: لا تُحذف منه إلا بتوثيق بديل"
+    )
+    assert "test_compose_sandbox_builder_works_without_docker" in text, (
+        "يجب توثيق الاختبار الذي يسدّ فجوة التغطية التي سمحت بالخطأ بالوصول إلى CI"
+    )
+
+
 def test_environment_states_docker_availability_truthfully():
     """ما يوثّه ENVIRONMENT.md يجب أن يطابق واقع البيئة (دليل لا ادعاء)."""
     text = read("docs/ENVIRONMENT.md")

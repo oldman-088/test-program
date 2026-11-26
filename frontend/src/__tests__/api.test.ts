@@ -57,17 +57,23 @@ describe('api client paths', () => {
     await expect(api.getStats()).rejects.toMatchObject({ code: 'UNAUTHORIZED', status: 401 });
   });
 
-  it('createInvestigation POSTs to /api/investigations with query_type', async () => {
-    const fetchMock = vi.fn(async () =>
-      Response.json(
-        { id: '1', query: 'alice', query_type: 'username', status: 'queued', created_at: '2026-01-01T00:00:00Z' },
-        { status: 201 },
-      ),
-    );
+  it('createInvestigation matches the documented POST path, request, and response', async () => {
+    const responseBody = {
+      id: '1',
+      query: 'alice',
+      query_type: 'username',
+      status: 'queued',
+      created_at: '2026-01-01T00:00:00Z',
+    };
+    const fetchMock = vi.fn(async () => Response.json(responseBody, { status: 201 }));
     vi.stubGlobal('fetch', fetchMock);
-    await api.createInvestigation({ query: 'alice', query_type: 'username' });
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+
+    const result = await api.createInvestigation({ query: 'alice', query_type: 'username' });
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/api/investigations');
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body as string)).toEqual({ query: 'alice', query_type: 'username' });
+    expect(result).toEqual(responseBody);
   });
 });

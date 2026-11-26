@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, type QueryType } from '../lib/api';
+import { ApiError, api, type QueryType } from '../lib/api';
 import { useHealth } from '../hooks/useHealth';
 import { useLocale } from '../hooks/useLocale';
 import { Badge } from '../components/ui/badge';
@@ -18,6 +18,12 @@ const SEARCH_TYPES: QueryType[] = [
   'domain',
   'entity',
 ];
+
+type SubmitError = {
+  code?: string;
+  message: string;
+  details?: string | null;
+};
 
 type SectionState<T> =
   | { status: 'loading' }
@@ -53,7 +59,7 @@ export function Dashboard() {
   const [queryType, setQueryType] = useState<QueryType>('username');
   const [submitting, setSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<SubmitError | null>(null);
 
   const [recent, setRecent] = useState<SectionState<Awaited<ReturnType<typeof api.getRecentInvestigations>>>>({
     status: 'loading',
@@ -132,7 +138,7 @@ export function Dashboard() {
     setSubmitMessage(null);
     setSubmitError(null);
     if (!query.trim()) {
-      setSubmitError(t('dashboard.queryRequired'));
+      setSubmitError({ message: t('dashboard.queryRequired') });
       return;
     }
     setSubmitting(true);
@@ -141,7 +147,15 @@ export function Dashboard() {
       setSubmitMessage(t('dashboard.investigationStarted'));
       void loadSections();
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'Request failed');
+      setSubmitError(
+        err instanceof ApiError
+          ? { code: err.code, message: err.message, details: err.details }
+          : {
+              code: 'UNKNOWN_ERROR',
+              message: err instanceof Error ? err.message : 'Request failed',
+              details: null,
+            },
+      );
     } finally {
       setSubmitting(false);
     }
@@ -216,8 +230,8 @@ export function Dashboard() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={t('dashboard.searchPlaceholder')}
-                aria-describedby={submitError ? 'search-error' : undefined}
-                aria-invalid={Boolean(submitError)}
+                aria-describedby={submitError !== null ? 'search-error' : undefined}
+                aria-invalid={submitError !== null}
               />
             </div>
             <div>
@@ -246,9 +260,20 @@ export function Dashboard() {
               </p>
             )}
             {submitError && (
-              <p id="search-error" role="alert" className="text-sm text-destructive">
-                {submitError}
-              </p>
+              <div id="search-error" role="alert" className="space-y-1 text-sm text-destructive">
+                {submitError.code && (
+                  <p>
+                    <span className="font-medium">{t('common.errorCode')}:</span> {submitError.code}
+                  </p>
+                )}
+                <p>{submitError.message}</p>
+                {submitError.details !== undefined && (
+                  <p>
+                    <span className="font-medium">{t('common.errorDetails')}:</span>{' '}
+                    {submitError.details ?? '—'}
+                  </p>
+                )}
+              </div>
             )}
           </form>
         </CardContent>

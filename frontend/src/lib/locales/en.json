@@ -19,6 +19,8 @@
   "common": {
     "loading": "Loading…",
     "error": "Something went wrong",
+    "errorCode": "Error code",
+    "errorDetails": "Details",
     "retry": "Retry",
     "empty": "Nothing here yet",
     "unavailable": "Unavailable",

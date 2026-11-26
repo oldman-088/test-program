@@ -1,26 +1,10 @@
-import { describe, expect, it } from 'vitest';
-import { useUiStore } from '../store/uiStore';
-
-describe('uiStore', () => {
-  it('defaults to dark theme and English (ltr)', () => {
-    const s = useUiStore.getState();
-    expect(s.theme).toBe('dark');
-    expect(s.locale).toBe('en');
-    expect(s.direction).toBe('ltr');
-  });
-
-  it('setLocale(ar) flips direction to rtl', () => {
-    useUiStore.getState().setLocale('ar');
-    expect(useUiStore.getState().direction).toBe('rtl');
-    useUiStore.getState().setLocale('en');
-    expect(useUiStore.getState().direction).toBe('ltr');
-  });
-
-  it('toggleTheme switches dark <-> light', () => {
-    useUiStore.getState().setTheme('dark');
-    useUiStore.getState().toggleTheme();
-    expect(useUiStore.getState().theme).toBe('light');
-    useUiStore.getState().toggleTheme();
-    expect(useUiStore.getState().theme).toBe('dark');
-  });
-});
+/**
+ * The `uiStore` suite for the frontend test layer lives at
+ * `src/store/uiStore.test.ts` (next to the store it covers).
+ *
+ * This former location is kept as a one-line entry point so the original
+ * command still works:
+ *   npx vitest run src/__tests__/uiStore.test.ts
+ * Both paths share the same tests — nothing is asserted twice.
+ */
+import '../store/uiStore.test';

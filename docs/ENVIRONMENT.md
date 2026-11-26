@@ -106,8 +106,9 @@ docker-compose -> MISSING   nginx -> MISSING   pwsh -> MISSING   shellcheck -> M
      صور الأساس المقروءة `[python:3.12-slim]` و `[node:20-alpine, nginx:alpine, node:20-alpine]`
      مع سلاسل ENV/LABEL/CMD مقروءة — أي أن استمرارات الخط الساطع واقتباسات JSON صالحة.
 4. **اختبارات آلية** في `tests/test_ops_containers.py`: الناتج الفعلي في هذه البيئة
-   `59 passed, 6 skipped` (التخطّي لغياب `pwsh` و Docker)، و 5 اختبارات
-   مُخصصة لبيئة فيها Docker (تحليل `docker compose config`، ثم بناء الصور وتشغيلها).
+   `60 passed, 6 skipped` (التخطّي لغياب `pwsh` و Docker)، و 5 اختبارات
+   مُخصصة لبيئة فيها Docker (تحليل `docker compose config`، ثم بناء الصور وتشغيلها) — **نجحت جميعها في CI**
+   كما هو موثّق أدناه تحت «نتيجة البناء الفعلية في بيئة فيها Docker».
 
 ### أوامر التحقق المطلوبة على مضيف فيه Docker
 لم يُتحقَّق من هذا في بيئة العمل (Docker غير مثبت، انظر ما سبق)، وهو ما تشغّله وظيفة
@@ -171,6 +172,36 @@ $ docker compose down -v                                # هنا فقط تُمس
 الأداة تتجاهل المكوّن غير الموجود برسالة واضحة بدل الفشل الصامت، وترفض أي وسيط
 مجهول، وتقرأ `.env` بتحليل سطور آمن (لا `source` ولا `Invoke-Expression`) لأن قيمًا مثل
 `APP_NAME=NEXUS OSINT` تُفسَّر كأمر عند `source`.
+
+### نتيجة البناء الفعلية في بيئة فيها Docker (وظيفة CI `ops-docker`)
+Docker غير متوفر في بيئة العمل المحلية، لذلك نُفِّذ البناء والتشغيل في CI على
+`ubuntu-latest` (شغّال أخضر على هذا الطلب). الناتج الحرفي من تعليمة `::notice::`
+التي تنشر ملخص pytest في آخر خطوة:
+
+```console
+ops-docker: 50 passed, 1 skipped in 30.15s
+SKIPPED [1] tests/test_ops_containers.py:535: uvicorn غير مثبت في بيئة الاختبار
+```
+
+المُثبَت آليًا هناك (وليس بالادعاء):
+- `docker compose config --quiet` نجح على `docker-compose.yml` وعلى دمجه مع
+  `docker-compose.override.yml` — من جذر المستودع نفسه رغم غياب `backend/` و `frontend/`.
+- `docker compose build` بنى الصورتين من `docker/Dockerfile.backend` و
+  `docker/Dockerfile.frontend` (نماذج `backend/` و `frontend/` مؤقتة في الدليل
+  المؤقت للاختبار فقط).
+- `docker compose up -d --wait`: الحاوية الخلفية `healthy` والأمامية `healthy`.
+- الواجهة تُخدم على منفذ منشور عبر nginx (index + `app.css` + `SPA fallback`)،
+  و `/api/health` يمرّ إلى خدمة `backend:8000`، والخلفية تجيب على منفذها المنشور.
+- صف SQLite المكتوب عبر `/api/db/hit` بقي بعد `docker compose down` ثم `up`
+  (`nexus-osint-data`)، و`nexus.db` وُجد داخل `/app/data`، والحاوية الخلفية لا تعمل
+  بالجذر (`id -u` = 10001).
+- `docker-compose.override.yml` يبدّل الواجهة إلى هدف `dev` ويخدم خادم التطوير
+  على نفس المنفذ المنشور.
+- اختبارا `scripts/dev.ps1` مع `pwsh` الحقيقي: تحليل نحو dry-run نجحا.
+- السكربت `test_backend_healthcheck_command_actually_works` (محليًا وفي CI).
+
+الوظيفة تنشر هذا الملخص كـ annotation لأن سجلات runner لا تُقرأ من بيئات العمل المعزولة
+هنا (المضيف الخارجي الوحيد المسموح هو `api.github.com`).
 
 ### ما كشفته أول تشغيل فعلي لوظيفة CI `ops-docker`
 سجّل أول تشغيل حقيقي (runner فيه Docker) ما يلي — وهو بالضبط سبب إضافة هذه الوظيفة:

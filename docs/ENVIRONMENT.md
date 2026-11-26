@@ -213,11 +213,26 @@ ops-docker: SKIPPED [1] tests/test_ops_containers.py:608: uvicorn غير مثب�
 ```
 
 وعلى الرأس السابق مباشرة (`1464905`، أول تشغيل بعد مواءمة العقد):
-`53 passed, 1 skipped in 38.41s` — نفس البنية، وبما أن التكامل مع `backend/` الحقيقية
-أضاف اختبارًا واحدًا فقد صار العدد 54. المدة الكلية (`~37s`) تشمل سحب الصور الأساس
-وبناء الصورتين و`up --wait` و`down` ثم `up` مرة أخرى؛ وظيفة CI تبثّ كذلك
-`::notice::ops-docker durations:` بأزمنة أبطأ الاختبارات ليتبين أي اختبار تكامل نُفِّذ
-فعلًا (لا تُخطّيته بصمت حيث Docker متاح).
+`53 passed, 1 skipped in 38.41s` — نفس البنية، والفرق اختبارٌ واحد أضافه التكامل مع
+`backend/` الحقيقية.
+
+وليس العدد وحده الدليل: الوظيفة تبثّ `::notice::ops-docker durations:` بأزمنة أبطأ
+الاختبارات، وعلى الرأس `26d90ba` كانت:
+
+```console
+30.22s call  tests/test_ops_containers.py::test_docker_compose_up_serves_frontend_proxies_api_and_persists_sqlite
+ 3.47s call  tests/test_ops_containers.py::test_docker_compose_override_switches_to_dev_target
+ 1.70s call  tests/test_ops_containers.py::test_dev_ps1_dry_run_with_pwsh
+ 0.85s call  tests/test_ops_containers.py::test_backend_healthcheck_command_actually_works
+ 0.24s call  tests/test_ops_containers.py::test_docker_compose_config_is_valid
+ 0.21s call  tests/test_ops_containers.py::test_dev_ps1_parses_with_pwsh
+```
+
+أي أن اختبار التكامل (سحب الصور الأساس، بناء الصورتين، `up --wait`، الاستعلام عبر nginx،
+`alembic upgrade head`، ثم `down` و`up` والتحقق من بقاء الصف) استغرق 30.22 ثانية فعلًا
+لا تُخطّيًا؛ وهذه الأزمنة هي السبب في إضافة الملخصين (`::error::` للفاشل و
+`durations` للناجح): سجلات runner لا تُقرأ من بيئة العمل المعزولة، فبدونهما كان
+«فشل ثلاث حالات في 3.09s» سيبدو كتخطٍّ صامت.
 
 وقبلها، أول تشغيل على رأس المزامنة (`aa19a21`) **فشل** بثلاث حالات في `ops-docker`
 وحالة في `test`، والسبب واحد: إعادة كتابة مُنشئ نموذج التكامل حذفت ثابته

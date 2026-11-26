@@ -70,3 +70,22 @@ npm run dev
 
 ## تنبيه مهم
 المراحل **2 إلى 7 لم تُنفذ بعد**. هذا المستند والمخرجات المرتبطة خاصة بـ **المرحلة 1 فقط** ولا تمثل أي وظيفة تطبيقية مكتملة. لا تُبنى أي ميزة في هذه المهمة.
+
+---
+
+## وثائق التقييم (docs only)
+
+| الوثيقة | المحتوى |
+| --- | --- |
+| [`docs/INTEGRATIONS_EVALUATION.md`](./docs/INTEGRATIONS_EVALUATION.md) | تقييم أدوات OSINT: Sherlock · Maigret · PhoneInfoga · OpenOSINT · Holehe |
+| [`docs/AATM_ARENA_EVALUATION.md`](./docs/AATM_ARENA_EVALUATION.md) | تقييم مستودع AATM وموصل Arena، وتصميم وحدة `NEXUS Arena Bridge` ومحوّل `AATM Integration Adapter` الاختياريين (تصميم غير منفّذ) |
+
+اختبارات عقود الوثائق (بلا أي حزمة خارجية):
+
+```bash
+python3 -m unittest tests.test_aatm_arena_evaluation -v   # 28 اختباراً، stdlib فقط
+python -m pytest tests/ -v                                # الحزمة الكاملة (ما يشغّله CI)
+```
+
+> `tests/manual/probe_aatm_connector.py` أداة أدلة يدوية (لا تُجمع مع الاختبارات): وجّه
+> `AATM_REPO` إلى نسخة AATM لإعادة إنتاج القياسات المذكورة في `docs/AATM_ARENA_EVALUATION.md`.

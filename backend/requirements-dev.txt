@@ -1,4 +1,4 @@
-# اعتماديات الاختبار — البند 21 · المهمة AATM-984687b7.
+# اعتماديات الاختبار — اتحاد بين البنود 21 و AATM-49a40f0c.
 # ``pip install -r requirements-dev.txt`` ثم ``cd backend && pytest``
 
 -r requirements.txt
@@ -6,3 +6,4 @@
 pytest>=8.0
 httpx>=0.27
 python-dotenv>=1.0
+ruff>=0.4

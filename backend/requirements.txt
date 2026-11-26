@@ -1,7 +1,12 @@
-# اعتماديات تشغيل طبقة الخلفية (runtime).
-# مثبتة بنطاق أدنى صريح حتى لا تنكسر الاختبارات بصمت عند تغيير CI.
-fastapi>=0.115
+# اعتماديات تشغيل طبقة الخلفية (runtime) — اتحاد بين البنود 21 و AATM-49a40f0c.
+# Boot requires NO API keys and NO mandatory network connections.
+# مثبتة بنطاق أدنى وأقصى صريح حتى لا تنكسر الاختبارات بصمت عند تغيّر CI.
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
 sqlalchemy>=2.0
 alembic>=1.13
-pydantic>=2.7
-pydantic-settings>=2.3
+pydantic>=2.7,<3.0
+pydantic-settings>=2.3,<3.0
+httpx>=0.27,<1.0
+python-multipart>=0.0.9
+apscheduler>=3.10,<4.0

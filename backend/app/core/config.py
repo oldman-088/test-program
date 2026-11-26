@@ -1,11 +1,14 @@
-"""إعدادات طبقة الخلفية — البند 21 · المهمة AATM-984687b7.
+"""إعدادات طبقة الخلفية — البند 21 · المهمة AATM-984687b7 · دُمجت حقول AATM-49a40f0c.
 
 مسؤولية هذا الملف: تعريف مصدر وحيد للإعدادات يقرأ (بترتيب أولوية مُختبَر):
 
     1. القيم الممرّرة صراحةً عند البناء (``Settings(DATABASE_URL=...)``) — للأدوات والاختبارات.
     2. متغيرات البيئة ``os.environ``.
-    3. ملف ``backend/.env`` إن وُجد (لا يُعمَّد أبداً — انظر ``.gitignore``).
+    3. ملف ``.env`` (جذر المستودع ثم ``backend/.env`` كتجاوز محلي) إن وُجد — لا يُعمَّد أبداً.
     4. القيم الافتراضية الواردة أدناه.
+
+التشغيل لا يتطلّب أي سرّ إلزامي ولا اتصال شبكة: كل حقل له قيمة افتراضية عاملة،
+و``SECRET_KEY`` اختياري (``.env.example`` يوثّق البدائل فقط).
 
 لا يقرأ هذا الملف أي شبكة ولا يتصل بأي خدمة.
 """
@@ -21,6 +24,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 #: مجلد ``backend/`` — مرجع كل المسارات النسبية، حتى يعمل الاستدعاء من أي cwd.
 BACKEND_DIR: Path = Path(__file__).resolve().parents[2]
+
+#: جذر المستودع — يُقرأ منه ``.env`` (مكانه الموثّق في ``.env.example``).
+REPO_ROOT: Path = BACKEND_DIR.parent
 
 #: ملف البيئة المحلي. اختياري تماماً؛ غيابه ليس خطأ.
 DEFAULT_ENV_FILE: Path = BACKEND_DIR / ".env"
@@ -43,7 +49,7 @@ class Settings(BaseSettings):
     """الحقل ↔ متغير البيئة: اسم الحقل بحروف كبيرة (``database_url`` ↔ ``DATABASE_URL``)."""
 
     model_config = SettingsConfigDict(
-        env_file=DEFAULT_ENV_FILE,
+        env_file=(REPO_ROOT / ".env", DEFAULT_ENV_FILE),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -57,6 +63,8 @@ class Settings(BaseSettings):
     DEFAULT_PAGE_SIZE: ClassVar[int] = 20
 
     app_name: str = DEFAULT_APP_NAME
+    #: إصدار العملية الذي يُعاد في ``GET /api/health`` (AATM-49a40f0c).
+    app_version: str = "0.1.0"
     environment: Literal["development", "test", "staging", "production"] = "development"
     debug: bool = False
     log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"] = "INFO"
@@ -64,7 +72,7 @@ class Settings(BaseSettings):
     database_url: str = DEFAULT_DATABASE_URL
     #: مهلة احتجاز سجلّ واحد (مهام/جلسات) بالثواني.
     db_pool_timeout_seconds: int = Field(default=30, ge=1, le=600)
-    #: أقصى عدد صفوف تُرجعه نقاط القائمة.
+    #: أقصى عدد صفوف تُرجعها نقاط القائمة.
     default_page_size: int = Field(default=DEFAULT_PAGE_SIZE, ge=1, le=200)
     max_page_size: int = Field(default=100, ge=1, le=1000)
 
@@ -72,8 +80,12 @@ class Settings(BaseSettings):
     request_id_header: str = "X-Request-ID"
     #: مفتاح API بسيط لحماية نقاط العمل (Q5). فارغ = الحماية مُفعّلة وكل الطلبات مرفوضة.
     api_key: SecretStr = SecretStr("")
+    #: سرّ اختياري لتوقيع الجلسات في مراحل لاحقة — الإقلاع لا يحتاجه أبداً.
+    secret_key: str | None = None
     #: قائمة origins مفصولة بفواصل أو مصفوفة JSON (كلاهما مقبول).
     cors_allow_origins: str = ""
+    #: origins واجهة اللوحة (AATM-49a40f0c) — مفصولة بفواصل، تُضاف إلى قائمة CORS.
+    frontend_origin: str = "http://localhost:5173"
 
     @field_validator("database_url")
     @classmethod
@@ -130,6 +142,11 @@ class Settings(BaseSettings):
         return [item.strip() for item in self.cors_allow_origins.split(",") if item.strip()]
 
     @property
+    def frontend_origins(self) -> list[str]:
+        """``FRONTEND_ORIGIN`` كقائمة (origin واحد لكل إصدار من أجهزة اللوحة)."""
+        return [origin.strip() for origin in self.frontend_origin.split(",") if origin.strip()]
+
+    @property
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")
 
@@ -140,7 +157,7 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """نسخة مُخزّنة من الإعدادات للتشغيل العادي. الاختبارات تبني ``Settings`` خاصاً بها."""
+    """نسخة مُخزّنة من الإعدادات للتشغيل العادي. الاختبارات تبني ``Settings`` خاصة بها."""
     return Settings()
 
 

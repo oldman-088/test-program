@@ -1,0 +1,25 @@
+# الأسرار وملفات البيئة — لا تُعمَّد أبداً (AGENTS.md · القاعدة 4)
+.env
+.env.*
+!**/.env.example
+backend/.env
+backend/.env.*
+
+# قواعد بيانات وأعمال محلية
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+backend/var/
+.worktrees/
+
+# بايثون
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv/
+venv/

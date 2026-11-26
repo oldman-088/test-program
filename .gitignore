@@ -1,4 +1,4 @@
-# ── دمج اتحادي (union) بين أنماط المرحلة 1 وأنماط شريحة الخلفية ────────────────
+# ── دمج اتحادي (union) بين أنماط المرحلة 1، شريحة الخلفية، و AATM-49a40f0c ──────
 # لا يحذف أي طرف نمطاً للطرف الآخر: ``tests/test_phase1.py`` يشترط أنماط
 # GITIGNORE_REQUIRED أدناه، و``backend/tests/test_config.py`` يشترط أن ``backend/.env``
 # مستثنى (قاعدة الأسرار في AGENTS.md · القاعدة 4).
@@ -6,6 +6,7 @@
 # أصول البناء والاعتماديات
 node_modules/
 dist/
+*.egg-info/
 
 # الأسرار وملفات البيئة — لا تُعمَّد أبداً (``.env.example`` يبقى متتبَّعاً)
 .env
@@ -31,4 +32,8 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .coverage
+coverage/
 htmlcov/
+
+# أنظمة تشغيل
+.DS_Store

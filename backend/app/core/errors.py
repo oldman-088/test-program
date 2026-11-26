@@ -1,4 +1,4 @@
-"""قالب الخطأ الموحد — البند 21 · المهمة AATM-984687b7.
+"""قالب الخطأ الموحد — البند 21 · المهمة AATM-984687b7 · دُمجت آلية AATM-49a40f0c.
 
 كل استجابة خطأ (بما فيها أخطاء التوثيق 404 وأخطاء التحقق من Pydantic وأخطاء
 المعالجة 500) تمرّ من ``error_envelope`` وحده، فلا يوجد أي مسار يُخرج JSON بشكل مختلف.
@@ -11,6 +11,10 @@
         "request_id": "…"
       }
     }
+
+``details`` قائمة دائماً في القالب العقدي (وقد تكون فارغة)، إلا في حالة موثّقة واحدة:
+الإثارة المُهيّأة من نقاط الصحة (``HTTPException`` بتفاصيل dict تحمل ``code``) حيث
+يُمرَّر كائن التفاصيل كما هو — انظر ``docs/API.md`` قسم سطح ``/api``.
 
 أي تغيير في المفاتيح أو في خريطة الأكواد↔حالات HTTP يكسر ``tests/test_contract.py``
 و``tests/test_errors.py`` معاً.
@@ -25,7 +29,7 @@ from typing import Any, ClassVar
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import JSONResponse
 
@@ -36,6 +40,21 @@ logger = logging.getLogger("app.errors")
 #: أسماء المفاتيح الأربعة داخل ``error`` — العقد الموثّق في ``docs/API.md``.
 ENVELOPE_ROOT_KEY: str = "error"
 ENVELOPE_FIELDS: tuple[str, ...] = ("code", "message", "details", "request_id")
+
+
+class ErrorBody(BaseModel):
+    """جسم الخطأ الآلي — يُستخدم لتوثيق استجابات الفشل في مخطط OpenAPI."""
+
+    code: str = Field(..., examples=["not_found"])
+    message: str = Field(..., examples=["المطلوب غير موجود."])
+    details: dict[str, Any] | list[Any] | None = Field(default=None)
+    request_id: str | None = Field(default=None, examples=["6f1d2c4a8b9e4f70a1b2c3d4e5f60718"])
+
+
+class ErrorResponse(BaseModel):
+    """قالب الخطأ الوحيد — كل استجابة فشل (4xx/5xx) تمرّ عبره."""
+
+    error: ErrorBody
 
 
 class APIError(Exception):
@@ -108,6 +127,14 @@ class DatabaseError(APIError):
     default_detail: ClassVar[str] = "قاعدة البيانات غير متاحة حالياً."
 
 
+class DatabaseUnreachableError(APIError):
+    """فشل فحص الاتصال بقاعدة البيانات في ``GET /api/health/db`` (AATM-49a40f0c)."""
+
+    code: ClassVar[str] = "database_unreachable"
+    status_code: ClassVar[int] = 503
+    default_detail: ClassVar[str] = "تعذّر الوصول إلى قاعدة البيانات."
+
+
 #: قائمة الأكواد المعتمدة؛ يُقارنها اختبار العقد بجدول الأخطاء في ``docs/API.md`` في الاتجاهين.
 ERROR_REGISTRY: dict[str, type[APIError]] = {
     cls.code: cls
@@ -120,6 +147,7 @@ ERROR_REGISTRY: dict[str, type[APIError]] = {
         ConfigurationError,
         UpstreamError,
         DatabaseError,
+        DatabaseUnreachableError,
         APIError,
     )
 }
@@ -144,15 +172,24 @@ def error_envelope(
     code: str,
     message: str,
     *,
-    details: list[dict[str, Any]] | None = None,
+    details: list[dict[str, Any]] | dict[str, Any] | None = None,
     request_id: str | None = None,
 ) -> dict[str, Any]:
-    """المصدر الوحيد لبناء جسم الخطأ. المفاتيح ثابتة دائماً."""
+    """المصدر الوحيد لبناء جسم الخطأ. المفاتيح ثابتة دائماً.
+
+    ``details`` تُمرَّر كما هي حين تكون قائمةً أو كائناً مُهيّأً (الحالة الموثّقة
+    الوحيدة: إثارة ``HTTPException`` بتفاصيل dict من نقاط الصحة)، وتصبح ``[]`` حين
+    لا توجد تفاصيل.
+    """
+    if isinstance(details, (dict, list)):
+        normalised: dict[str, Any] | list[Any] = details
+    else:
+        normalised = list(details or [])
     return {
         ENVELOPE_ROOT_KEY: {
             "code": code,
             "message": message,
-            "details": list(details or []),
+            "details": normalised,
             "request_id": request_id,
         }
     }
@@ -172,7 +209,7 @@ def _json_error(
     status_code: int,
     code: str,
     message: str,
-    details: list[dict[str, Any]] | None,
+    details: list[dict[str, Any]] | dict[str, Any] | None,
     request_id: str | None,
 ) -> JSONResponse:
     headers = {"X-Error-Code": code}
@@ -217,6 +254,27 @@ def _validation_details(exc: ValidationError | RequestValidationError) -> list[d
     return items
 
 
+def _split_structured_detail(detail: Any) -> tuple[str | None, dict[str, Any] | list[Any] | None]:
+    """تفكيك ``HTTPException.detail`` المُهيّأ (AATM-49a40f0c).
+
+    dict يحمل ``code`` يُعامَل كجسم خطأ كامل: ``{"code", "message", "details"}``
+    (``message``/``details`` اختياريان؛ المفاتيح الزائدة تصبح التفاصيل). أي dict/list
+    آخر يُعامَل كقيمة ``details`` وحدها. التفاصيل النصية تبقى رسالةً فقط.
+    """
+    if isinstance(detail, dict):
+        if "code" in detail:
+            extra = detail.get("details")
+            if extra is None:
+                leftover = {key: value for key, value in detail.items() if key not in ("code", "message", "details")}
+                extra = leftover or None
+            message = detail.get("message")
+            return (str(message) if message is not None else None), extra
+        return None, detail
+    if isinstance(detail, list):
+        return None, detail
+    return None, None
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """يسجّل كل المعالجات. تُنادى مرة واحدة من ``create_app``."""
 
@@ -254,8 +312,17 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def _handle_http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         code = HTTP_STATUS_TO_CODE.get(exc.status_code, f"http_{exc.status_code}")
-        detail = exc.detail if isinstance(exc.detail, str) else HTTPStatus(exc.status_code).phrase
-        return _json_error(exc.status_code, code, detail, None, request_id_of(request))
+        detail = exc.detail
+        if isinstance(detail, dict) and "code" in detail:
+            code = str(detail["code"])
+        structured_message, details = _split_structured_detail(detail)
+        if structured_message is not None:
+            message = structured_message
+        elif isinstance(detail, str) and detail.strip():
+            message = detail
+        else:
+            message = HTTPStatus(exc.status_code).phrase
+        return _json_error(exc.status_code, code, message, details, request_id_of(request))
 
     @app.exception_handler(Exception)
     async def _handle_unexpected(request: Request, exc: Exception) -> JSONResponse:

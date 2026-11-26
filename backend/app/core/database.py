@@ -40,24 +40,49 @@ class DatabaseUnavailableError(SQLAlchemyError):
 
 
 class Database:
-    """حامل محرك + مصنع جلسات لمخطط واحد."""
+    """حامل محرك + مصنع جلسات لمخطط واحد.
+
+    المحرك يُبنى عند أول استخدام لا عند البناء: الإقلاع (و``/api/health``) لا يحتاج
+    قاعدة ولا حتى مشغّل قاعدة مثبّتاً — وهذا يبقى صحيحاً مع ``DATABASE_URL`` شبكي.
+    """
 
     def __init__(self, url: str, *, echo: bool = False, pool_timeout: int | None = None) -> None:
-        kwargs: dict[str, Any] = {"echo": echo, "future": True}
-        if url.startswith("sqlite"):
+        self.url = url
+        self._echo = echo
+        self._pool_timeout = pool_timeout
+        self._engine: Engine | None = None
+        self._sessionmaker: sessionmaker | None = None
+
+    def _build_engine(self) -> Engine:
+        kwargs: dict[str, Any] = {"echo": self._echo, "future": True}
+        if self.url.startswith("sqlite"):
             # الاختبارات/TestClient تستخدم خيطاً واحداً، لكن uvicorn لا يضمن ذلك.
             kwargs["connect_args"] = {"check_same_thread": False}
-            if ":memory:" in url:
+            if ":memory:" in self.url:
                 from sqlalchemy.pool import StaticPool
 
                 kwargs["poolclass"] = StaticPool
         else:
-            if pool_timeout is not None:
-                kwargs["pool_timeout"] = pool_timeout
+            if self._pool_timeout is not None:
+                kwargs["pool_timeout"] = self._pool_timeout
             kwargs["pool_pre_ping"] = True
-        self.url = url
-        self.engine: Engine = create_engine(url, **kwargs)
-        self.sessionmaker = sessionmaker(bind=self.engine, autoflush=False, expire_on_commit=False)
+        try:
+            return create_engine(self.url, **kwargs)
+        except ImportError as exc:  # مشغّل قاعدة غير مثبّت — لا يُسقط الإقلاع بصمت
+            raise DatabaseUnavailableError(f"database driver unavailable: {exc}") from exc
+
+    @property
+    def engine(self) -> Engine:
+        """المحرك — يُبنى عند أول وصول فقط (لا اتصال ولا استيراد مشغّل عند الإقلاع)."""
+        if self._engine is None:
+            self._engine = self._build_engine()
+        return self._engine
+
+    @property
+    def sessionmaker(self) -> sessionmaker:
+        if self._sessionmaker is None:
+            self._sessionmaker = sessionmaker(bind=self.engine, autoflush=False, expire_on_commit=False)
+        return self._sessionmaker
 
     # ── المخطط ────────────────────────────────────────────────────────────
     def create_all(self) -> None:
@@ -106,7 +131,8 @@ class Database:
 
     def dispose(self) -> None:
         """يغلق كل اتصالات التجمع — تُنادى في ``shutdown`` ومن تثبيتات الاختبار."""
-        self.engine.dispose()
+        if self._engine is not None:
+            self._engine.dispose()
 
 
 # ── ربط سريع بـ FastAPI ──────────────────────────────────────────────────

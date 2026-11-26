@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Databases & local env
+*.db
+*.sqlite3
+.env
+
+# Node / frontend
+node_modules/
+dist/
+*.tsbuildinfo
+npm-debug.log*
+.vite/
+
+# Editors & OS
+.DS_Store
+.idea/
+.vscode/
+
+# Frontend build info
+frontend/tsconfig.tsbuildinfo

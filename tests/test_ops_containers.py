@@ -743,9 +743,10 @@ def _compose_sandbox(tmp_path: Path) -> Path:
 
 
 def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s[1]
+    """منفذ حر على حلقة الاسترجاع، لتفادي تعارض المنافذ المنشورة بين التشغيلات."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 def _http_request(method: str, url: str, attempts: int = 30) -> str:

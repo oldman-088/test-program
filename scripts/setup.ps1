@@ -1,18 +1,18 @@
-# scripts/setup.ps1 — NEXUS OSINT fase 1 setup (PowerShell / Windows)
+# scripts/setup.ps1 — NEXUS OSINT المرحلة 1 الإعداد (PowerShell / Windows)
 #
 # ما يفعله هذا السكريبت:
 # 1. إنشاء بيئة افتراضية بايثون (.venv) وتثبيت متطلبات الخلفية.
 # 2. تثبيت حزم الواجهة الأمامية عبر npm (عند توفرها).
 # 3. توليد ملف .env من .env.example باستخدام بايثون (إن لم يكن موجودًا).
 #
-# ملاحظة: fase 1 توثيقية وتأسيسية فقط. لا تُنفَّذ أي ميزة applicative هنا.
+# ملاحظة: المرحلة 1 توثيقية وتأسيسية فقط. لا تُنفذ أي ميزة تطبيقية هنا.
 $ErrorActionPreference = "Stop"
 
 $RootDir = (Get-Item (Join-Path $PSScriptRoot "..")).FullName
 Set-Location $RootDir
 
-Write-Host "=== NEXUS OSINT setup.ps1 (fase 1) ==="
-Write-Host "Working directory: $RootDir"
+Write-Host "=== NEXUS OSINT الإعداد (المرحلة 1) ==="
+Write-Host "دليل العمل: $RootDir"
 
 # -------------------------------------------------
 # 0. التحقق من توفر الأوامر
@@ -47,13 +47,13 @@ if (-not (Test-Path $VenvDir)) {
 $ReqFile = Join-Path $RootDir "backend/requirements.txt"
 if (Test-Path $ReqFile) {
     Write-Host "تثبيت متطلبات الخلفية من backend/requirements.txt..."
-    $Activate = Join-Path $VenvDir @("Scripts","Activate.ps1") -ChildPath ''
-    # تجاوز قيود ExecutionPolicy لهذا الجلسة فقط
-    & $Activate
+    $ActivateScript = Join-Path (Join-Path $VenvDir 'Scripts') 'Activate.ps1'
+    # تجاوز قيود ExecutionPolicy لهذه الجلسة فقط
+    & $ActivateScript
     & $PythonExe -m pip install --upgrade pip
     & $PythonExe -m pip install -r $ReqFile
 } else {
-    Write-Host "ملف backend/requirements.txt غير موجود بعد (سيُنشأ في fase 2). تخطي تثبيت الحزم الخلفية."
+    Write-Host "ملف backend/requirements.txt غير موجود بعد (سينشأ في المرحلة 2). تخطي تثبيت الحزم الخلفية."
 }
 
 # -------------------------------------------------
@@ -68,7 +68,7 @@ if ((Test-Path $FrontendDir) -and (Test-Path $PkgFile)) {
     Pop-Location
     Write-Host "تم تثبيت حزم الواجهة الأمامية."
 } else {
-    Write-Host "مجلد frontend أو package.json غير موجود بعد (سيُنشأ في fase 7). تخطي تثبيت واجهة الأمام."
+    Write-Host "مجلد frontend أو package.json غير موجود بعد (سينشأ في المرحلة 7). تخطي تثبيت واجهة الأمام."
 }
 
 # -------------------------------------------------
@@ -79,7 +79,8 @@ $Example = Join-Path $RootDir ".env.example"
 $Target = Join-Path $RootDir ".env"
 
 $PythonExe = if (Get-Command python3 -ErrorAction SilentlyContinue) { "python3" } else { "python" }
-& $PythonExe - "$RootDir" <<'PY'
+
+$PyCode = @'
 import sys
 from pathlib import Path
 
@@ -96,7 +97,9 @@ if target.exists():
 else:
     target.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
     print("تم توليد .env من .env.example (لا تُلزم أبدًا — مستثنى من Git).")
-PY
+'@
 
-Write-Host "=== اكتمل الإعداد بنجاح (fase 1) ==="
+& $PythonExe -Command $PyCode "$RootDir"
+
+Write-Host "=== اكتمل الإعداد بنجاح (المرحلة 1) ==="
 Write-Host "تنبيه: المراحل 2 إلى 7 لم تُنفذ بعد."

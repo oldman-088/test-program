@@ -6,3 +6,15 @@ __pycache__/
 .env
 *.sqlite3
 .mypy_cache/
+
+# --- Backend core additions (Python tooling, local DBs) ---
+.env.*
+!.env.example
+*.py[cod]
+.ruff_cache/
+venv/
+*.egg-info/
+*.db
+*.sqlite
+coverage/
+.DS_Store

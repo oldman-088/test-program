@@ -65,8 +65,35 @@ npm run dev
 # عند توفر الكود في المرحلة 7، يُشغل الخادم على http://localhost:3000
 ```
 
+### التشغيل بالحاويات (docker compose)
+```bash
+cp .env.example .env
+docker compose up -d --build      # البناء + التشغيل (يتطلب Docker)
+# الواجهة: http://localhost:3000  (nginx يخدم الملفات ويوجّه /api و /ws إلى الخلفية)
+# الخلفية:  http://localhost:8000/api/health
+docker compose down               # إيقاف مع بقاء بيانات SQLite (volume: nexus-osint-data)
+docker compose down -v            # إيقاف مع حذف البيانات
+```
+ملفات التشغيل: `docker/Dockerfile.backend`، `docker/Dockerfile.frontend`، `docker/nginx.conf`،
+`docker-compose.yml`، وللتسخّر أثناء التطوير `docker-compose.override.yml`.
+
+### التشغيل المحلي بدون Docker
+```bash
+./scripts/dev.sh                  # الخلفية (uvicorn --reload) + الواجهة (npm run dev)
+./scripts/dev.sh --backend-only   # الخلفية وحدها
+./scripts/dev.sh --dry-run        # طباعة الأوامر دون تنفيذها
+# Windows / PowerShell
+.\scripts\dev.ps1 -BackendOnly -Port 8000
+```
+
 ### توليد ملف `.env`
 يتم توليد `.env` من `.env.example` تلقائيًا ضمن `scripts/setup.sh` و `scripts/setup.ps1` باستخدام بايثون. لا تُلزم `.env` أبدًا — إنها مستثناة من Git.
+
+## نتيجة التحقق الفعلية
+نتيجة بناء الحاويات وتشغيل السكربتات في بيئة التطوير موثّقة حرفيًا في
+[`docs/ENVIRONMENT.md`](./docs/ENVIRONMENT.md) (القسم الثاني): Docker غير مثبت هناك،
+لذا تم التحقق بالبدائل (فحص الصيغة، `docker compose config`، تشغيل `dev.sh` الفعلي)
+وأُوكل بناء الصور وتشغيلها إلى وظيفة CI `ops-docker`.
 
 ## تنبيه مهم
 المراحل **2 إلى 7 لم تُنفذ بعد**. هذا المستند والمخرجات المرتبطة خاصة بـ **المرحلة 1 فقط** ولا تمثل أي وظيفة تطبيقية مكتملة. لا تُبنى أي ميزة في هذه المهمة.

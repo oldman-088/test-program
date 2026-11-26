@@ -17,14 +17,19 @@ jobs:
         with:
           python-version: "3.11"
 
+      # pyyaml لتحليل docker-compose.yml، و crossplane لتحليل nginx.conf، و
+      # dockerfile-parse لفحص صيغة ملفَي Dockerfile (تتخطّى الاختبارات نفسها عند غيابها).
       - name: Install pytest
-        run: pip install pytest
+        run: pip install pytest pyyaml crossplane dockerfile-parse
 
       - name: Run phase 1 tests
         run: python -m pytest tests/ -v
 
       - name: Validate setup.sh bash syntax
         run: bash -n scripts/setup.sh
+
+      - name: Validate dev.sh bash syntax
+        run: bash -n scripts/dev.sh
 
       - name: Validate setup.ps1 has no bash heredoc
         run: |
@@ -49,3 +54,58 @@ jobs:
 
       - name: Verify .env remains after setup.ps1
         run: test -f .env && echo ".env exists after setup.ps1"
+
+  # ---------------------------------------------------------------------------
+  # وظيفة التشغيل بالحاويات: تتحقق فعليًا من docker-compose.yml ومن ملفَي Dockerfile
+  # (بناء الصورتين، خدمة الواجهة على منفذ منشور، تمرير /api، وبقاء SQLite في
+  # volume بعد إعادة الإنشاء). هذه البيئة الوظيفية فيها Docker، بعكس بيئة التطوير
+  # الموثّقة في docs/ENVIRONMENT.md.
+  # ---------------------------------------------------------------------------
+  ops-docker:
+    name: Ops — docker compose and dev scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install pytest pyyaml crossplane dockerfile-parse
+
+      - name: Report tool versions
+        run: |
+          docker --version
+          docker compose version
+          bash --version | head -1
+          node --version
+          npm --version
+          python --version
+
+      # pwsh اختيارية: اختبارا dev.ps1 يتخطّيان نفسيهما ذاتيًا عند غيابها.
+      - name: Install PowerShell
+        continue-on-error: true
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y powershell
+
+      - name: Validate compose files (config + override merge)
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          docker compose config --services
+          docker compose -f docker-compose.yml -f docker-compose.override.yml config --quiet
+
+      - name: Run ops tests (includes docker build + up + volume persistence)
+        env:
+          NEXUS_RUN_DOCKER_INTEGRATION: "1"
+        run: python -m pytest tests/test_ops_containers.py -v -rs
+
+      - name: Triage leftovers on failure
+        if: failure()
+        run: |
+          docker ps -a || true
+          docker volume ls || true
+          docker images || true

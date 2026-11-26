@@ -1,0 +1,102 @@
+# =============================================================================
+# docker/Dockerfile.frontend — صورة الواجهة الأمامية لنظام NEXUS OSINT
+# البند 3 و 20 و 22 من المواصفة: بناء بـ node:20-alpine ثم خدمة الملفات المبنية
+# بـ nginx:alpine.
+#
+# من جذر المستودع (سياق البناء يشمل frontend/ و docker/nginx.conf):
+#   docker build -f docker/Dockerfile.frontend -t nexus-osint-frontend:local .
+#   أو: docker compose build frontend
+#
+# هدفان (targets):
+#   runtime (الافتراضي) — nginx:alpine يخدم frontend/dist ويوجّه /api و /ws للخلفية.
+#   dev                 — خادم التطوير (npm run dev) مع تسخّر الكود، تستخدمه
+#                         docker-compose.override.yml.
+#
+# متغيّرات البيئة:
+#   NGINX_PORT         المنفذ الذي يفحصه HEALTHCHECK داخل الحاوية — الافتراضي 8080.
+#                      منفذ الاستماع الفعلي معرّف صراحةً في docker/nginx.conf
+#                      (سطر listen 8080)؛ غيّر الموضعين معًا عند تغيير المنفذ.
+#   FRONTEND_DEV_PORT  منفذ خادم التطوير في هدف dev — الافتراضي 8080
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# مرحلة البناء
+# ---------------------------------------------------------------------------
+FROM node:20-alpine AS build
+
+WORKDIR /app
+
+ENV CI=1 \
+    NPM_CONFIG_UPDATE_NOTIFIER=false \
+    NPM_CONFIG_FUND=false \
+    NPM_CONFIG_AUDIT=false
+
+# طبقة الاعتماديات أولًا (cache أسهل عند تغيّر الكود دون المتطلبات).
+# النجمة (*) بعد اسم الملف تجعل النسخة اختيارية: لا يفشل COPY عند غياب package-lock.json.
+COPY frontend/package.json frontend/package-lock.json* frontend/npm-shrinkwrap.json* ./
+RUN if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then \
+        npm ci --no-audit --no-fund; \
+    else \
+        npm install --no-audit --no-fund; \
+    fi
+
+COPY frontend/ ./
+
+# مخرجات البناء يجب أن تكون في /app/dist ليلتقطها هدف nginx أدناه.
+# إن لم يكن لدى المشروع سكربت build يُنتج dist/ فسيفشل البناء برسالة واضحة
+# (شيفرة الواجهة ملك مهمة الواجهة الأمامية — المهمة رقم 3).
+RUN set -e; \
+    if ! node -e "const p=require('./package.json');process.exit(p.scripts&&p.scripts.build?0:1)"; then \
+        echo "لا يوجد سكربت build في frontend/package.json — نفّذ مهمة الواجهة الأمامية."; exit 1; \
+    fi; \
+    npm run build; \
+    if [ ! -d dist ]; then echo "فشل البناء: مجلد dist/ غير موجود بعد npm run build"; exit 1; fi
+
+# ---------------------------------------------------------------------------
+# مرحلة التشغيل: nginx يخدم الملفات الثابتة
+# ---------------------------------------------------------------------------
+FROM nginx:alpine AS runtime
+
+LABEL org.opencontainers.image.title="NEXUS OSINT frontend" \
+      org.opencontainers.image.description="nginx-served React dashboard for NEXUS OSINT (AATM)" \
+      org.opencontainers.image.source="https://github.com/oldman-088/test-program"
+
+# nginx.conf يخدم الملفات الثابتة ويوجّه /api و /ws إلى خدمة الخلفية.
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+
+ENV NGINX_PORT=8080
+
+EXPOSE 8080
+
+# فحص صحة لـ nginx نفسه عبر مسار /healthz المعرّف في nginx.conf.
+HEALTHCHECK --interval=15s --timeout=4s --start-period=10s --retries=3 \
+    CMD wget -q -O /dev/null "http://127.0.0.1:${NGINX_PORT:-8080}/healthz" || exit 1
+
+# لا CMD هنا: يُستخدم entrypoint/CMD الرسميان لصورة nginx:alpine.
+
+# ---------------------------------------------------------------------------
+# هدف التطوير: خادم التطوير الخاص بـ npm (يستخدمه docker-compose.override.yml)
+# ---------------------------------------------------------------------------
+FROM node:20-alpine AS dev
+
+WORKDIR /app
+
+ENV CI=1 \
+    NPM_CONFIG_UPDATE_NOTIFIER=false \
+    NPM_CONFIG_FUND=false \
+    NPM_CONFIG_AUDIT=false \
+    FRONTEND_DEV_PORT=8080
+
+COPY frontend/package.json frontend/package-lock.json* frontend/npm-shrinkwrap.json* ./
+RUN if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then \
+        npm ci --no-audit --no-fund; \
+    else \
+        npm install --no-audit --no-fund; \
+    fi
+
+EXPOSE 8080
+
+# يخدم خادم التطوير على 8080 ليستخدم نفس نشر المنفذ المعرّف في docker-compose.yml
+# دون تعارض، ولذلك لا يعيد docker-compose.override.yml تعريف ports إطلاقًا.
+CMD ["sh", "-c", "if [ ! -d node_modules ] || [ -z \"$(ls -A node_modules 2>/dev/null)\" ]; then echo 'تثبيت اعتماديات الواجهة داخل الحاوية...'; npm install --no-audit --no-fund; fi; test -f package.json || { echo 'frontend/package.json غير موجود — لا يمكن تشغيل خادم التطوير.'; exit 1; }; exec npm run dev -- --host 0.0.0.0 --port \"${FRONTEND_DEV_PORT:-8080}\""]

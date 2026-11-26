@@ -17,14 +17,30 @@ jobs:
         with:
           python-version: "3.11"
 
+      # pyyaml لتحليل docker-compose.yml، و crossplane لتحليل nginx.conf، و
+      # dockerfile-parse لفحص صيغة ملفَي Dockerfile (تتخطّى الاختبارات نفسها عند غيابها).
       - name: Install pytest
-        run: pip install pytest
+        run: pip install pytest pyyaml crossplane dockerfile-parse
 
       - name: Run phase 1 tests
-        run: python -m pytest tests/ -v
+        run: |
+          set +e
+          python -m pytest tests/ -v -rs --tb=short 2>&1 | tee pytest-phase1.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" != "0" ]; then
+            # أسماء الاختبارات الفاشلة في annotations: سجلات runner لا تُقرأ من بيئة معزولة.
+            grep -E '^(FAILED|ERROR)' pytest-phase1.log | head -n 15 | while IFS= read -r line; do
+              printf '::error::%s\n' "$line"
+            done
+          fi
+          exit "$rc"
 
       - name: Validate setup.sh bash syntax
         run: bash -n scripts/setup.sh
+
+      - name: Validate dev.sh bash syntax
+        run: bash -n scripts/dev.sh
 
       - name: Validate setup.ps1 has no bash heredoc
         run: |
@@ -50,9 +66,11 @@ jobs:
       - name: Verify .env remains after setup.ps1
         run: test -f .env && echo ".env exists after setup.ps1"
 
+  # ---------------------------------------------------------------------------
   # البند 21 · المهمة AATM-984687b7 — شريحة الخلفية واختبار تطابق العقد.
   # وظيفة مستقلة: وظيفة `test` لا تُثبّت إلا pytest، واختبارات backend تحتاج
   # fastapi/sqlalchemy/alembic/httpx (انظر AGENTS.md · E49).
+  # ---------------------------------------------------------------------------
   backend-tests:
     runs-on: ubuntu-latest
     defaults:
@@ -76,3 +94,74 @@ jobs:
         run: |
           pip install ruff
           ruff check .   # الإعداد في backend/ruff.toml
+
+  # ---------------------------------------------------------------------------
+  # وظيفة التشغيل بالحاويات: تتحقق فعليًا من docker-compose.yml ومن ملفَي Dockerfile
+  # (بناء الصورتين، خدمة الواجهة على منفذ منشور، تمرير /api، وبقاء SQLite في
+  # volume بعد إعادة الإنشاء). هذه البيئة الوظيفية فيها Docker، بعكس بيئة التطوير
+  # الموثّقة في docs/ENVIRONMENT.md.
+  # ---------------------------------------------------------------------------
+  ops-docker:
+    name: Ops — docker compose and dev scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install pytest pyyaml crossplane dockerfile-parse
+
+      - name: Report tool versions
+        run: |
+          docker --version
+          docker compose version
+          bash --version | head -1
+          node --version
+          npm --version
+          python --version
+
+      # pwsh اختيارية: اختبارا dev.ps1 يتخطّيان نفسيهما ذاتيًا عند غيابها.
+      - name: Install PowerShell
+        continue-on-error: true
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y powershell
+
+      - name: Validate compose files (config + override merge)
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          docker compose config --services
+          docker compose -f docker-compose.yml -f docker-compose.override.yml config --quiet
+
+      - name: Run ops tests (includes docker build + up + volume persistence)
+        env:
+          NEXUS_RUN_DOCKER_INTEGRATION: "1"
+        run: |
+          set +e
+          python -m pytest tests/test_ops_containers.py -v -rs --tb=short --durations=6 2>&1 | tee pytest-ops.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          # ملخص العدد في annotation لأن سجلات runner غير مقروءة من بيئات العمل المعزولة.
+          tail -n 2 pytest-ops.log | tr '\n' ' ' | sed 's/^/::notice::ops-docker: /'
+          # أزمنة أبطأ الاختبارات: دليل قابل للتدقيق على أن اختبارات التكامل (build/up/down)
+          # نُفِّذت فعلًا ولم تُتخطَّ بصمت حيث Docker متاح.
+          grep -A 8 -E 'slowest [0-9]+ durations' pytest-ops.log \
+            | head -n 9 | tr '\n' '|' | sed 's/^/::notice::ops-docker durations: /' || true
+          if [ "$rc" != "0" ]; then
+            grep -E '^(FAILED|ERROR)' pytest-ops.log | head -n 15 | while IFS= read -r line; do
+              printf '::error::%s\n' "$line"
+            done
+          fi
+          exit "$rc"
+
+      - name: Triage leftovers on failure
+        if: failure()
+        run: |
+          docker ps -a || true
+          docker volume ls || true
+          docker images || true

@@ -1,0 +1,56 @@
+# =============================================================================
+# docker-compose.override.yml — طبقة التطوير المحلي فوق docker-compose.yml
+#
+# يقرؤها Compose تلقائيًا مع الملف الأساسي عند تشغيل `docker compose up` بلا وسائط،
+# فيسخّر (hot-reload) الكود بدل الاعتماد على نسخة مبنية داخل الصورة:
+#   * backend : يُحمَّل ./backend داخل الحاوية ويُشغَّل uvicorn بـ --reload.
+#   * frontend: يُنتقل إلى هدف البناء dev (خادم تطوير node) بدل nginx المبنى،
+#               مع mount لمجلد frontend/ و volume مجهول يحمي node_modules داخل
+#               الحاوية من استبدال مجلد node_modules على المضيف إن وُجد.
+#
+# التشغيل الفعلي للتطوير بالحاويات:      docker compose up --build
+# للتشغيل بلا حاويات (uvicorn + npm مباشرة) استخدم: ./scripts/dev.sh
+#
+# للعودة مؤقتًا إلى وضع الإنتاج مع بقاء نفس الملفات:
+#   docker compose -f docker-compose.yml up -d
+# =============================================================================
+
+services:
+  backend:
+    # إعادة تحميل تلقائي عند أي تغيير في backend/ (المجلد يُركب فوق نسخة الصورة).
+    environment:
+      UVICORN_RELOAD: "1"
+      # في التطوير فقط تُطبَّق هجرات Alembic عند إقلاع الحاوية، حتى تعمل نقاط
+      # /api/v1/sessions مباشرة بعد `docker compose up`. في الإنتاج الخطوة صريحة:
+      #   docker compose exec backend alembic upgrade head
+      MIGRATE_ON_START: "1"
+      # التطوير المحلي يكتب قاعدة SQLite في نفس الـ volume حتى لا تتضاعف البيانات.
+      APP_DEBUG: "true"
+    volumes:
+      - ./backend:/app/backend
+    # uvicorn يرث CMD من الصورة؛ --reload مفعّل عبر UVICORN_RELOAD أعلاه.
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+      target: dev
+    working_dir: /app
+    environment:
+      # خادم التطوير يجب أن يبثّ على 0.0.0.0 وإلا ظلّ داخل شبكة الحاوية فقط.
+      HOST: "0.0.0.0"
+      PORT: "8080"
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+      VITE_HOST: "0.0.0.0"
+      VITE_PORT: "8080"
+    volumes:
+      - ./frontend:/app
+      # volume مجهول: يمنع إخفاء node_modules المثبّت داخل الصورة بـ node_modules
+      # المضيف (أو بخلو المجلد على المضيف). يُحذف بإعادة `docker compose build`.
+      - /app/node_modules
+      - /app/.vite
+
+    # لا إعادة تعريف لـ ports هنا: التذكير مقصود — النشر يبقى من الملف الأساسي
+    # (${FRONTEND_PORT:-3000}:8080)، وأي إضافة هنا تُراكم مع قائمة الملف الأساسي
+    # فتؤدي إلى تعارض على منفذ المضيف.

@@ -1,0 +1,49 @@
+# =============================================================================
+# .dockerignore — ما لا يدخل سياق البناء (build context) مطلقًا.
+# السياق هو جذر المستودع لأن ملفَي Dockerfile ينسخان backend/ و frontend/،
+# وهذا الملف يقلّل حجم السياق ويمنع تسرّب الملفات الحساسة إلى الطبقات.
+# ملاحظة: docker/ غير مستثنى عمدًا — Dockerfile.frontend ينسخ docker/nginx.conf.
+# =============================================================================
+
+# أسرار وملفات محلية — لا تصل إلى الصورة حتى لو أُضيف COPY واسع لاحقًا
+.env
+.env.*
+.env.local
+!.env.example
+*.pem
+*.key
+
+# Git و CI
+.git
+.gitignore
+.github
+
+# أصول لا يحتاجها البناء داخل الحاوية
+**/node_modules
+**/dist
+**/build
+**/.next
+**/.vite
+data/
+*.db
+*.sqlite3
+logs/
+
+# مخلفات Python
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+.venv
+.venv-*
+venv
+
+# وثائق واختبارات وسكربتات مضيف (تُشغَّل على المضيف لا داخل الصورة)
+docs/
+tests/
+scripts/
+README.md
+LICENSE
+docker-compose*.yml
+.dockerignore

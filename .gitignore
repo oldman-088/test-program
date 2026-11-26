@@ -32,3 +32,11 @@ __pycache__/
 .mypy_cache/
 .coverage
 htmlcov/
+
+# ملفات التشغيل المحلي (المهمة: الحاويات والتطوير المحلي)
+data/
+logs/
+.venv-test/
+# بيئات افتراضية مساعدة للسكربتات/التحقق المحلي (.venv-test، .venv-be، …)
+.venv-*/
+*.egg-info/

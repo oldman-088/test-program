@@ -1,0 +1,83 @@
+# =============================================================================
+# docker/Dockerfile.backend — صورة الخلفية (FastAPI + Uvicorn) لنظام NEXUS OSINT
+# البند 3 و 20 و 22 من المواصفة.
+#
+# البناء من جذر المستودع لأن سياق البناء (build context) يجب أن يشمل backend/:
+#   docker build -f docker/Dockerfile.backend -t nexus-osint-backend:local .
+#   أو: docker compose build backend
+#
+# العقد مطابق لشريحة الخلفية المدموجة في main:
+#   * الحزمة الجذرية هي ``app`` داخل backend/ (الاستيراد ``from app...``)، لذا
+#     WORKDIR=/app/backend و PYTHONPATH=/app/backend، ومنفذ ASGI ``app.main:app``.
+#   * مسارات REST مُركّبة تحت ``API_V1_PREFIX`` (افتراضيًا /api/v1) — و``/api/*``
+#     يمر عبر nginx دون rewrite، فيبقى ``/api/v1/health`` صحيحًا من الطرفين.
+#   * ``backend/requirements.txt`` لا يعلن uvicorn (وهو ليس اعتمادية اختبار أيضًا)،
+#     لذا يُثبَّت صراحة في هذه الصورة بدل جرّ requirements-dev.txt إلى الإنتاج.
+#
+# متغيّرات البيئة التي يحترمها هذا الملف (تُمرَّر عبر .env / compose):
+#   BACKEND_PORT      منفذ الاستماع داخل الحاوية — الافتراضي 8000
+#   APP_IMPORT        مسار كائن ASGI — الافتراضي app.main:app
+#   API_V1_PREFIX     بادئة مسارات REST — الافتراضي /api/v1
+#   DATA_DIR          مجلد بيانات SQLite (يُمرَّر كـ volume دائم في compose)
+#   UVICORN_RELOAD    =1 يفعّل --reload (يُفعَّله docker-compose.override.yml)
+#   MIGRATE_ON_START  =1 يشغّل ``alembic upgrade head`` قبل uvicorn (dev فقط)
+#   HEALTHCHECK_PATH  مسار الفحص — الافتراضي ${API_V1_PREFIX}/health
+#                    عطّله بقيمة فارغة: HEALTHCHECK_PATH=""
+#   UVICORN_EXTRA_ARGS نص إضافي يُمَرَّر لأمر uvicorn كما هو
+# =============================================================================
+
+FROM python:3.12-slim AS runtime
+
+LABEL org.opencontainers.image.title="NEXUS OSINT backend" \
+      org.opencontainers.image.description="FastAPI backend for NEXUS OSINT (AATM)" \
+      org.opencontainers.image.source="https://github.com/oldman-088/test-program"
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    LANG=C.UTF-8
+
+# قيم افتراضية قابلة للتجاوز من .env / compose.
+ENV BACKEND_PORT=8000 \
+    APP_IMPORT=app.main:app \
+    API_V1_PREFIX=/api/v1 \
+    DATA_DIR=/app/data \
+    UVICORN_RELOAD=0 \
+    MIGRATE_ON_START=0 \
+    PYTHONPATH=/app/backend
+
+WORKDIR /app/backend
+
+# 1) طبقة الاعتماديات أولًا: تغيير الكود وحده لا يُبطل cache هذه الطبقة.
+#    إن كان backend/requirements.txt مفقودًا يفشل البناء برسالة واضحة.
+COPY backend/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir "uvicorn>=0.30"
+
+# 2) الشيفرة المصدرية للخلفية (تحت /app/backend حتى يبقى ``import app`` صحيحًا).
+COPY backend/ /app/backend/
+
+# 3) مستخدم غير جذري + مجلد بيانات قابل للكتابة فقط.
+#    عند إنشاء volume باسم جديد تنسخ Docker ملكية/صلاحيات المجلد من الصورة، لذا يكفي
+#    ضبط ملكية /app/data ليكتب المستخدم app قاعدة SQLite في الـ volume.
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid 10001 --home-dir /app --shell /usr/sbin/nologin app \
+    && mkdir -p /app/data \
+    && chown app:app /app/data \
+    && chmod 0755 /app /app/data
+
+USER app:app
+
+EXPOSE 8000
+
+# الفحص يستخدم مكتبة python القياسية بدل curl، ومساره قابل للتهيئة.
+# ملاحظة: صيغة shell form مقصودة — صيغة exec form (JSON) لا تسمح بأكثر من سطر واحد.
+# تعطيل الفحص: HEALTHCHECK_PATH=""
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
+    CMD python -c "import os,sys,urllib.request; p=os.environ.get('HEALTHCHECK_PATH'); p=(os.environ.get('API_V1_PREFIX') or '/api/v1').rstrip('/')+'/health' if p is None else p; url='http://127.0.0.1:'+(os.environ.get('BACKEND_PORT') or '8000')+p; sys.exit(0) if not p else sys.exit(0 if 200 <= urllib.request.urlopen(url, timeout=4).status < 400 else 1)"
+
+# المنفذ من متغير البيئة BACKEND_PORT (البند 3) والاستماع على 0.0.0.0 دائمًا ليُنفَذ
+# من Compose. الهجرات اختيارية (MIGRATE_ON_START) لأن الخلفية تُبقي Alembic صراحةً
+# خطوة تشغيل مستقلة؛ في وضع التطوير يفعّلها docker-compose.override.yml.
+CMD ["sh", "-c", "set -eu; PORT=\"${BACKEND_PORT:-8000}\"; if [ \"${MIGRATE_ON_START:-0}\" = \"1\" ] && [ -f alembic.ini ]; then echo 'تطبيق هجرات Alembic قبل التشغيل...'; alembic upgrade head; fi; RELOAD=\"\"; if [ \"${UVICORN_RELOAD:-0}\" = \"1\" ]; then RELOAD=\"--reload --reload-dir /app/backend\"; fi; exec uvicorn \"${APP_IMPORT:-app.main:app}\" --host 0.0.0.0 --port \"$PORT\" ${UVICORN_EXTRA_ARGS:-} $RELOAD"]

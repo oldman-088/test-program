@@ -205,7 +205,9 @@ def test_setup_sh_generates_env(tmp_path, monkeypatch):
     tmp_root = tmp_path / "repo"
     tmp_root.mkdir(parents=True, exist_ok=True)
     for item in ROOT.iterdir():
-        if item.name in (".venv-test", ".pytest_cache"):
+        # .venv-test و .pytest_cache مخلفات محلية، و .env يُنشئه setup.sh نفسه:
+        # نسخه إلى الدليل المؤقت يُبطل assertion «لا يوجد .env قبل التشغيل».
+        if item.name in (".venv-test", ".pytest_cache", ".env"):
             continue
         if item.is_dir():
             shutil.copytree(item, tmp_root / item.name)
